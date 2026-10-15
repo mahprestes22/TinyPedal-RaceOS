@@ -111,6 +111,14 @@ def copy_runtime_assets():
             shutil.copy2(src, dst)
             print(f"    Copied file: {f}")
 
+    # Ensure executable name is lowercase 'tinypedal.exe' to match original
+    exe_src = os.path.join(APP_DIR, f"{BUILD_NAME}.exe")
+    exe_tmp = os.path.join(APP_DIR, "tinypedal_tmp.exe")
+    exe_dst = os.path.join(APP_DIR, "tinypedal.exe")
+    if os.path.exists(exe_src):
+        os.rename(exe_src, exe_tmp)
+        os.rename(exe_tmp, exe_dst)
+
 
 def create_release_zip():
     print(f"[*] Creating release archive: {ZIP_NAME}...")
@@ -121,8 +129,9 @@ def create_release_zip():
         for root, dirs, files in os.walk(APP_DIR):
             for file in files:
                 file_path = os.path.join(root, file)
-                rel_path = os.path.relpath(file_path, DIST_DIR)
-                zipf.write(file_path, rel_path)
+                rel_path = os.path.relpath(file_path, APP_DIR)
+                arcname = os.path.join("TinyPedal", rel_path)
+                zipf.write(file_path, arcname)
 
     zip_size_mb = os.path.getsize(ZIP_PATH) / (1024 * 1024)
     print(f"[+] Release archive created: {ZIP_PATH} ({zip_size_mb:.2f} MB)")
@@ -136,7 +145,7 @@ def main():
     print("\n" + "=" * 60)
     print(f"[SUCCESS] Standalone build complete!")
     print(f"Directory: {APP_DIR}")
-    print(f"Executable: {os.path.join(APP_DIR, 'TinyPedal.exe')}")
+    print(f"Executable: {os.path.join(APP_DIR, 'tinypedal.exe')}")
     print(f"Release ZIP: {ZIP_PATH}")
     print("=" * 60)
 
