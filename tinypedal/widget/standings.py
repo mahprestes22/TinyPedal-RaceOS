@@ -796,6 +796,59 @@ class Realtime(Overlay):
                 hide_start=row_start + 1,
             )
 
+        # Driver rating
+        if self.wcfg.get("show_driver_rating", False):
+            self.bar_style_rat = (
+                (
+                    self.wcfg.get("font_color_driver_rating", "#CCCCCC"),
+                    self.wcfg.get("background_color_driver_rating", "#222222"),
+                ),
+                (
+                    self.wcfg.get("font_color_player_driver_rating", "#000000"),
+                    self.wcfg.get("background_color_player_driver_rating", "#BBBBBB"),
+                ),
+            )
+            self.bars_rat = self.set_rawtext(
+                padding=bar_padx,
+                width=7 * font_m.width,
+                fixed_height=font_m.height,
+                offset_y=font_m.voffset,
+                fg_color=self.bar_style_rat[0][0],
+                bg_color=self.bar_style_rat[0][1],
+                count=self.veh_range,
+            )
+            self.set_grid_layout_table_column(
+                layout=layout,
+                targets=self.bars_rat,
+                row_start=row_start,
+                column=self.wcfg.get("display_order_driver_rating", 25),
+                hide_start=row_start + 1,
+            )
+
+        # Driver rating delta
+        if self.wcfg.get("show_driver_rating_delta", False):
+            self.bar_style_rad = (
+                self.wcfg.get("font_color_driver_rating_gain", "#2ECC71"),
+                self.wcfg.get("font_color_driver_rating_loss", "#E74C3C"),
+                self.wcfg.get("font_color_driver_rating", "#AAAAAA"),
+            )
+            self.bars_rad = self.set_rawtext(
+                padding=bar_padx,
+                width=4 * font_m.width,
+                fixed_height=font_m.height,
+                offset_y=font_m.voffset,
+                fg_color=self.bar_style_rad[0],
+                bg_color=self.wcfg.get("background_color_driver_rating", "#222222"),
+                count=self.veh_range,
+            )
+            self.set_grid_layout_table_column(
+                layout=layout,
+                targets=self.bars_rad,
+                row_start=row_start,
+                column=self.wcfg.get("display_order_driver_rating_delta", 26),
+                hide_start=row_start + 1,
+            )
+
         # Caption
         if self.wcfg["show_caption"]:
             # Hide pit status caption if none status background is transparent
@@ -951,6 +1004,17 @@ class Realtime(Overlay):
             # Lift and coast time
             if self.wcfg["show_lift_and_coast_time"]:
                 self.update_lic(self.bars_lic[idx], veh_info.licoTimer.elapsed, veh_info.licoTimer.idling, hi_player, state)
+            # Driver rating
+            if self.wcfg.get("show_driver_rating", False):
+                rat_data = minfo.rating.ratings[std_idx] if std_idx >= 0 else None
+                tier = rat_data.tier if rat_data else ""
+                self.update_rat(self.bars_rat[idx], tier, hi_player, state)
+            # Driver rating delta
+            if self.wcfg.get("show_driver_rating_delta", False):
+                rat_data = minfo.rating.ratings[std_idx] if std_idx >= 0 else None
+                d_text = rat_data.deltaText if rat_data else ""
+                d_val = rat_data.projectedDelta if rat_data else 0.0
+                self.update_rad(self.bars_rad[idx], d_text, d_val, hi_player, state)
 
     # GUI update methods
     def update_pos(self, target, *data):
@@ -1283,6 +1347,32 @@ class Realtime(Overlay):
                 text_speed = f"{lico_time:.0f}s"
             target.text = text_speed
             target.fg, target.bg = self.bar_style_lic[color_index]
+            self.toggle_visibility(target, data[-1])
+
+    def update_rat(self, target, *data):
+        """Driver rating / tier"""
+        if target.last != data:
+            target.last = data
+            target.text = data[0]
+            target.fg, target.bg = self.bar_style_rat[data[1]]
+            self.toggle_visibility(target, data[-1])
+
+    def update_rad(self, target, *data):
+        """Driver rating delta"""
+        if target.last != data:
+            target.last = data
+            delta_val = data[1]
+            if data[2]:  # player
+                color_index = 0 if delta_val >= 0 else 1
+            elif delta_val > 0:
+                color_index = 0  # gain (green)
+            elif delta_val < 0:
+                color_index = 1  # loss (red)
+            else:
+                color_index = 2  # neutral
+            target.text = data[0]
+            target.fg = self.bar_style_rad[color_index]
+            target.bg = self.bar_style_rat[0][1]
             self.toggle_visibility(target, data[-1])
 
     # Additional methods

@@ -704,6 +704,26 @@ class SectorsInfo:
 
 
 @slotclass
+class DriverRatingData:
+    """Driver rating data per vehicle"""
+
+    driverRating: float = 0.0
+    safetyRating: float = 0.0
+    tier: str = ""
+    projectedDelta: float = 0.0
+    deltaText: str = ""
+
+
+@slotclass
+class RatingInfo:
+    """Rating module output data"""
+
+    ratings: tuple[DriverRatingData, ...] = df_tuple(DriverRatingData, DATA.MAX_VEHICLES)
+    strengthOfField: float = 0.0
+    isOnline: bool = False
+
+
+@slotclass
 class StatsInfo:
     """Stats output data"""
 
@@ -817,3 +837,4 @@ class ModuleInfo:
     tracknotes: NotesInfo = df_wrap(NotesInfo)
     vehicles: VehiclesInfo = df_wrap(VehiclesInfo)
     wheels: WheelsInfo = df_wrap(WheelsInfo)
+    rating: RatingInfo = df_wrap(RatingInfo)

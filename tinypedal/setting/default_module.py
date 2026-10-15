@@ -118,6 +118,13 @@ MODULE_DEFAULT = {
         "estimated_unsprung_weight": 200,
         "minimum_static_weight_override": -1,
     },
+    "module_rating": {
+        "enable": True,
+        "update_interval": 1000,
+        "idle_update_interval": 3000,
+        "enable_live_elo_projection": True,
+        "default_rating": 1500,
+    },
 }
 
 MODULE_FILENAME = tuple(MODULE_DEFAULT)
