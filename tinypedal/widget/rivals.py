@@ -62,6 +62,8 @@ class Realtime(Overlay):
         self.max_delta = calc.asym_max(int(self.wcfg["number_of_delta_laptime"]), 2, 5)
         self.nrg_decimals = max(int(self.wcfg["decimal_places_energy_remaining"]), 0)
         self.nrg_width = 3 + self.nrg_decimals + (self.nrg_decimals > 0)
+        self.rat_width = max(int(self.wcfg.get("driver_rating_width", 7)), 1)
+        self.rad_width = max(int(self.wcfg.get("driver_rating_delta_width", 4)), 1)
 
         # Max display players
         self.veh_range = 2
@@ -624,7 +626,7 @@ class Realtime(Overlay):
             )
             self.bars_rat = self.set_rawtext(
                 padding=bar_padx,
-                width=8 * font_m.width,
+                width=self.rat_width * font_m.width,
                 fixed_height=font_m.height,
                 offset_y=font_m.voffset,
                 fg_color=self.bar_style_rat[0][0],
@@ -648,7 +650,7 @@ class Realtime(Overlay):
             )
             self.bars_rad = self.set_rawtext(
                 padding=bar_padx,
-                width=3 * font_m.width,
+                width=self.rad_width * font_m.width,
                 fixed_height=font_m.height,
                 offset_y=font_m.voffset,
                 fg_color=self.bar_style_rad[0],
@@ -675,10 +677,30 @@ class Realtime(Overlay):
                 padding=bar_padx,
                 transparent_columns=transparent_columns,
             )
+        # Capture caption_rad widget reference for column hiding
+        if self.wcfg.get("show_driver_rating_delta", False):
+            col_rad = self.wcfg.get("display_order_driver_rating_delta", 26)
+            item = layout.itemAtPosition(0, col_rad)
+            self.caption_rad = item.widget() if item else None
+        else:
+            self.caption_rad = None
 
     def timerEvent(self, event):
         """Update when vehicle on track"""
         in_race = api.read.session.in_race()
+        show_rad = self.wcfg.get("show_driver_rating_delta", False)
+        race_only_rad = self.wcfg.get("show_driver_rating_delta_for_race_only", True)
+        hide_rad_column = show_rad and race_only_rad and not in_race
+        if show_rad:
+            if hide_rad_column:
+                if self.caption_rad and not self.caption_rad.isHidden():
+                    self.caption_rad.setHidden(True)
+                for bar in self.bars_rad:
+                    if not bar.isHidden():
+                        bar.setHidden(True)
+            else:
+                if self.caption_rad and self.caption_rad.isHidden():
+                    self.caption_rad.setHidden(False)
         plr_veh_info = minfo.vehicles.dataSet[minfo.vehicles.playerIndex]
         rivals_list = plr_veh_info.classAheadIndex, plr_veh_info.classBehindIndex
 
@@ -799,7 +821,7 @@ class Realtime(Overlay):
                 tier = rat_data.tier if rat_data else ""
                 self.update_rat(self.bars_rat[idx], tier, state)
             # Driver rating delta
-            if self.wcfg.get("show_driver_rating_delta", False):
+            if show_rad and not hide_rad_column:
                 rat_data = minfo.rating.ratings[rvl_idx] if rvl_idx >= 0 else None
                 d_text = rat_data.deltaText if rat_data else ""
                 d_val = rat_data.projectedDelta if rat_data else 0.0
@@ -1095,7 +1117,7 @@ class Realtime(Overlay):
         """Driver rating / tier"""
         if target.last != data:
             target.last = data
-            target.text = data[0]
+            target.text = data[0][:self.rat_width]
             target.fg, target.bg = self.bar_style_rat[0]
             self.toggle_visibility(target, data[-1])
 
@@ -1116,7 +1138,7 @@ class Realtime(Overlay):
                 color_index = 1  # loss (red)
             else:
                 color_index = 2  # neutral
-            target.text = data[0]
+            target.text = data[0][:self.rad_width]
             target.fg = self.bar_style_rad[color_index]
             target.bg = self.bar_style_rat[0][1]
             self.toggle_visibility(target, data[-1])

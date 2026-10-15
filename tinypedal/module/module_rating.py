@@ -571,23 +571,15 @@ class Realtime(DataModule):
                 d_divisor = self._session_d
                 ratings_on = self._ratings_enabled
 
-            # Only calculate / show gain/loss delta during race session (Practice & Qualy have no DR gains)
-            is_in_race = False
-            try:
-                if api and api.read and api.read.session:
-                    is_in_race = bool(api.read.session.in_race())
-            except Exception:
-                pass
-
             for cls_name, drivers in class_drivers.items():
                 n = len(drivers)
-                if n <= 1 or not calc_elo or not ratings_on or not is_in_race:
+                if n <= 1 or not calc_elo or not ratings_on:
                     for idx, d_name, pos, elo, is_plr, dr_tier, sr_tier in drivers:
                         target = ratings_output[idx]
                         target.driverRating = elo
                         target.tier = dr_tier if dr_tier else get_tier_name(elo, compact=use_compact)
                         target.projectedDelta = 0.0
-                        target.deltaText = "" if not is_in_race else "+0"
+                        target.deltaText = "+0"
                     continue
 
                 drivers.sort(key=lambda x: x[2])

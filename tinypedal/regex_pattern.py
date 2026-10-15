@@ -138,6 +138,8 @@ CFG_INTEGER = (
     "bar_height|"
     "bar_length|"
     "bar_width|"
+    "driver_rating_width|"
+    "driver_rating_delta_width|"
     "display_order|"
     "decimal_places|"
     "digits|"
