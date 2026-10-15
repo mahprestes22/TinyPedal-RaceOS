@@ -120,14 +120,50 @@ def copy_runtime_assets():
         os.rename(exe_tmp, exe_dst)
 
 
+USER_DATA_DIRS = [
+    "settings",
+    "deltabest",
+    "carsetups",
+    "brandlogo",
+    "pacenotes",
+    "trackmap",
+    "tracknotes",
+]
+EXCLUDE_EXTS = (".log", ".backup", ".lock", ".stats")
+
+
+def clean_user_data():
+    """Purge any user settings or runtime data generated during testing"""
+    print(f"[*] Ensuring {APP_DIR} is clean of any user/runtime data...")
+    for folder in USER_DATA_DIRS:
+        target = os.path.join(APP_DIR, folder)
+        if os.path.exists(target):
+            shutil.rmtree(target, ignore_errors=True)
+            print(f"    Purged user directory: {folder}")
+
+    for root, _, files in os.walk(APP_DIR):
+        for f in files:
+            if f.endswith(EXCLUDE_EXTS):
+                try:
+                    os.remove(os.path.join(root, f))
+                    print(f"    Purged temporary file: {f}")
+                except Exception:
+                    pass
+
+
 def create_release_zip():
     print(f"[*] Creating release archive: {ZIP_NAME}...")
+    clean_user_data()
     if os.path.exists(ZIP_PATH):
         os.remove(ZIP_PATH)
 
     with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(APP_DIR):
+            # Prune excluded directories
+            dirs[:] = [d for d in dirs if d not in USER_DATA_DIRS]
             for file in files:
+                if file.endswith(EXCLUDE_EXTS):
+                    continue
                 file_path = os.path.join(root, file)
                 rel_path = os.path.relpath(file_path, APP_DIR)
                 arcname = os.path.join("TinyPedal", rel_path)
