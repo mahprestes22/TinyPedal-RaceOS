@@ -28,33 +28,37 @@ logger = logging.getLogger(__name__)
 SKILL_TO_RATING = {
     "platinum": 3100.0,
     "gold": 2550.0,
-    "silver": 1950.0,
+    "silver": 1850.0,
     "bronze": 1350.0,
 }
 
 
-def get_tier_name(rating: float) -> str:
-    """Return tier string based on numeric rating (WEC/LMU tiers)"""
+def get_tier_name(rating: float, compact: bool = True) -> str:
+    """Return tier string based on numeric rating (WEC/LMU tiers: B3..B1, S3..S1, G3..G1, P3..P1)"""
     if rating < 1200:
-        return "Bronze 3"
+        return "B3" if compact else "Bronze 3"
     elif rating < 1350:
-        return "Bronze 2"
+        return "B2" if compact else "Bronze 2"
     elif rating < 1500:
-        return "Bronze 1"
+        return "B1" if compact else "Bronze 1"
     elif rating < 1700:
-        return "Silver 3"
+        return "S3" if compact else "Silver 3"
     elif rating < 1900:
-        return "Silver 2"
+        return "S2" if compact else "Silver 2"
     elif rating < 2100:
-        return "Silver 1"
+        return "S1" if compact else "Silver 1"
     elif rating < 2400:
-        return "Gold 3"
+        return "G3" if compact else "Gold 3"
     elif rating < 2700:
-        return "Gold 2"
+        return "G2" if compact else "Gold 2"
     elif rating < 3000:
-        return "Gold 1"
+        return "G1" if compact else "Gold 1"
+    elif rating < 3300:
+        return "P3" if compact else "Platinum 3"
+    elif rating < 3600:
+        return "P2" if compact else "Platinum 2"
     else:
-        return "Platinum"
+        return "P1" if compact else "Platinum 1"
 
 
 class Realtime(DataModule):
@@ -91,8 +95,12 @@ class Realtime(DataModule):
         except Exception:
             pass  # REA might not be running or in menu
 
-    def _get_base_rating(self, driver_name: str, default_rating: float) -> float:
-        """Get rating from REA cache or calculate deterministic fallback"""
+    def _get_base_rating(self, driver_name: str, default_rating: float, is_player: bool = False, player_rating: float = 1780.0) -> float:
+        """Get rating from player config, REA cache, or calculate deterministic fallback"""
+        # If this is the human player, use player's real DR (default Silver 2: 1780.0)
+        if is_player or driver_name.lower() in ("marcelo prestes", "player"):
+            return player_rating
+
         if driver_name in self._rating_cache:
             return self._rating_cache[driver_name]
 
@@ -119,9 +127,11 @@ class Realtime(DataModule):
         _event_wait = self._event.wait
         update_interval = self.active_interval
         default_rating = float(self.mcfg.get("default_rating", 1500))
+        player_rating = float(self.mcfg.get("player_driver_rating", 1780.0))
+        use_compact = bool(self.mcfg.get("use_compact_tier_format", True))
         calc_elo = bool(self.mcfg.get("enable_live_elo_projection", True))
 
-        # Initial fetch from REA
+        # Initial non-blocking fetch from REA
         self._fetch_rea_skills()
 
         while not _event_wait(update_interval):
@@ -141,7 +151,7 @@ class Realtime(DataModule):
                 vehicles = minfo.vehicles.dataSet
 
                 # Group active vehicles by class
-                class_drivers: dict[str, list[tuple[int, str, int, float]]] = defaultdict(list)
+                class_drivers: dict[str, list[tuple[int, str, int, float, bool]]] = defaultdict(list)
                 total_ratings: list[float] = []
 
                 for idx in range(DATA.MAX_VEHICLES):
@@ -157,9 +167,9 @@ class Realtime(DataModule):
                         continue
 
                     cls_name = veh.vehicleClass if veh.vehicleClass else "Overall"
-                    base_dr = self._get_base_rating(driver_name, default_rating)
+                    base_dr = self._get_base_rating(driver_name, default_rating, veh.isPlayer, player_rating)
                     pos_in_class = veh.positionInClass if veh.positionInClass > 0 else veh.positionOverall
-                    class_drivers[cls_name].append((idx, driver_name, pos_in_class, base_dr))
+                    class_drivers[cls_name].append((idx, driver_name, pos_in_class, base_dr, veh.isPlayer))
                     total_ratings.append(base_dr)
 
                 # Compute Strength of Field (SoF)
@@ -172,10 +182,10 @@ class Realtime(DataModule):
                 for cls_name, drivers in class_drivers.items():
                     n = len(drivers)
                     if n <= 1 or not calc_elo:
-                        for idx, d_name, pos, base_dr in drivers:
+                        for idx, d_name, pos, base_dr, is_plr in drivers:
                             target = ratings_output[idx]
                             target.driverRating = base_dr
-                            target.tier = get_tier_name(base_dr)
+                            target.tier = get_tier_name(base_dr, compact=use_compact)
                             target.projectedDelta = 0.0
                             target.deltaText = "+0"
                         continue
@@ -183,11 +193,11 @@ class Realtime(DataModule):
                     # Sort drivers by running position in class
                     drivers.sort(key=lambda x: x[2])
 
-                    for i, (idx, d_name, pos_i, r_i) in enumerate(drivers):
+                    for i, (idx, d_name, pos_i, r_i, is_plr) in enumerate(drivers):
                         actual_score = 0.0
                         expected_score = 0.0
 
-                        for j, (_, _, pos_j, r_j) in enumerate(drivers):
+                        for j, (_, _, pos_j, r_j, _) in enumerate(drivers):
                             if i == j:
                                 continue
                             # Expected probability of i beating j (Logistic curve)
@@ -204,7 +214,7 @@ class Realtime(DataModule):
                         delta = (actual_score - expected_score) * (k_factor / max(n - 1, 1))
                         target = ratings_output[idx]
                         target.driverRating = r_i
-                        target.tier = get_tier_name(r_i)
+                        target.tier = get_tier_name(r_i, compact=use_compact)
                         target.projectedDelta = delta
 
                         int_delta = int(round(delta))

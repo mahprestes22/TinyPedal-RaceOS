@@ -124,6 +124,9 @@ MODULE_DEFAULT = {
         "idle_update_interval": 3000,
         "enable_live_elo_projection": True,
         "default_rating": 1500,
+        "player_driver_rating": 1780.0,
+        "player_tier": "S2",
+        "use_compact_tier_format": True,
     },
 }
 
