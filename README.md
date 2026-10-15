@@ -1,23 +1,51 @@
 # 🏁 TinyPedal-RaceOS
-> **Fork otimizado para Le Mans Ultimate (LMU) com integração em tempo real ao raceos.gg e telemetria moderna.**
+> **Telemetry overlay for Le Mans Ultimate (LMU) featuring real-time raceos.gg Driver Rating integration, live Elo projection, and modernized UI.**
 
-**TinyPedal-RaceOS** é uma versão aprimorada do [TinyPedal](https://github.com/TinyPedal/TinyPedal), especialmente focada no cenário competitivo online de **Le Mans Ultimate (LMU)**.
+**TinyPedal-RaceOS** is a specialized fork of [TinyPedal](https://github.com/TinyPedal/TinyPedal), enhanced specifically for the online competitive ecosystem of **Le Mans Ultimate (LMU)** and powered by **raceos.gg**.
 
-### ✨ Novas Funcionalidades / New Features:
-- 📊 **Driver Rating Real (raceos.gg):** Exibe o Driver Rating (DR) e tier de todos os pilotos do grid em tempo real, com porcentagem de progresso exata.
+---
+
+### ✨ Key Features (New in RaceOS Edition)
+
+- 📊 **Real Driver Rating Integration (raceos.gg):**
+  - Fetches real-time Driver Rating (DR) and license rank for all drivers in the session via raceos.gg API.
+  - Displays exact tier progress percentage (e.g., `S2 61.4%`, `B3 85%`).
+- 📈 **Live Elo Gain/Loss Projection (+/-):**
+  - Real-time lap-by-lap DR change projection during races.
+  - Automatically handles official event multipliers (1.5x and 2.0x special events).
+- 🎨 **Authentic DR Tier Color Badges:**
+  - In-game matching color badges for each license category:
+    - 🟦 **Platinum**: `#3A6FAD`
+    - 🟡 **Gold**: `#C8A400`
+    - ⚪ **Silver**: `#8F9499`
+    - 🟤 **Bronze**: `#9B6033`
+  - Toggle checkbox in widget settings to switch between tier colors and standard colors.
+- 🔴 **Compact 2x2 Tire Dot Matrix:**
+  - Displays tire compounds for all 4 wheels in a minimalist 2x2 dot grid to save horizontal screen real estate.
+- ⏱️ **Context-Aware Column Auto-Hide:**
+  - Rating delta (`+/-`) column automatically collapses during Practice & Qualifying sessions, opening cleanly only when entering a Race.
+- 💎 **Modern Dark Glass Visuals:**
+  - Clean gradients, anti-aliased font rendering, and refined translucency.
+
+<details>
+<summary><b>🇧🇷 Clique aqui para ler a descrição em Português</b></summary>
+
+### 🇧🇷 Destaques da Edição RaceOS:
+- 📊 **Driver Rating Real (raceos.gg):** Exibe o DR e tier de todos os pilotos do grid em tempo real, com porcentagem de progresso exata.
 - 📈 **Projeção ao Vivo de Ganho/Perda de DR (+/-):** Cálculo de variação de Elo volta a volta durante a corrida, com suporte aos multiplicadores de pontuação (1.5x e 2.0x).
 - 🎨 **Cores Oficiais de Tier:** Destaque visual idêntico ao jogo para cada categoria de licença (Platina 🟦, Ouro 🟡, Prata ⚪, Bronze 🟤) com opção de ativar/desativar nas configurações.
 - 🔴 **Grid de Pneus 2x2 em Bolinhas:** Visualização compacta dos 4 compostos de pneus sem ocupar espaço horizontal excessivo.
 - ⏱️ **Recolhimento Inteligente de Coluna:** A coluna de projeção (`+/-`) se oculta automaticamente nos treinos e qualificação, aparecendo apenas na corrida.
 - 💎 **Visual Moderno Dark Glass:** Gradientes suaves, cantos arredondados e acabamento translúcido limpo.
+</details>
 
 ---
 
-## Sobre o TinyPedal Original
+## About Original TinyPedal
 
-TinyPedal é um aplicativo de overlay de telemetria gratuito e de código aberto para simulação automobilística.
+TinyPedal is a Free and Open Source telemetry overlay application for racing simulation.
 
-Atualmente suporta `Assetto Corsa Competizione`, `Le Mans Ultimate`, `rFactor 2` no `Windows` e `Linux`.
+Currently supports `Assetto Corsa Competizione`, `Le Mans Ultimate`, `rFactor 2`, and runs on `Windows` and `Linux`.
 
 [Download Releases](https://github.com/mahprestes22/TinyPedal-RaceOS/releases) -
 [Upstream Original](https://github.com/TinyPedal/TinyPedal) -
