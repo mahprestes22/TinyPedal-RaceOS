@@ -712,6 +712,8 @@ class DriverRatingData:
     tier: str = ""
     projectedDelta: float = 0.0
     deltaText: str = ""
+    nationality: str = ""
+    badge: str = ""
 
 
 @slotclass

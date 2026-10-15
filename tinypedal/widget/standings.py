@@ -20,9 +20,13 @@
 Standings Widget
 """
 
+import os
+from PySide2.QtCore import Qt
+from PySide2.QtGui import QPixmap
+
 from .. import api, minfo, units
 from .. import calculation as calc
-from ..constant import DATA
+from ..constant import DATA, FILE
 from ..formatter import random_color_class, shorten_driver_name
 from ..userfile.custom_image import load_brand_logo_image
 from ..userfile.heatmap import select_compound_color, select_compound_symbol
@@ -56,6 +60,12 @@ class Realtime(Overlay):
         self.veh_width = max(int(self.wcfg["vehicle_name_width"]), 1)
         self.brd_width = max(int(self.wcfg["brand_logo_width"]), 1)
         self.brd_height = max(self.wcfg["font_size"], 1)
+        self.flg_width = max(int(self.wcfg.get("country_flag_width", 24)), 1)
+        self.flg_height = max(self.wcfg["font_size"], 1)
+        self.bdg_width = max(int(self.wcfg.get("driver_badge_width", 20)), 1)
+        self.bdg_height = max(self.wcfg["font_size"], 1)
+        self.pixmap_flag: dict[str, QPixmap | None] = {}
+        self.pixmap_badge: dict[str, QPixmap | None] = {}
         self.cls_width = max(int(self.wcfg["class_width"]), 0)
         self.gap_width = max(int(self.wcfg["time_gap_width"]), 1)
         self.int_width = max(int(self.wcfg["time_interval_width"]), 1)
@@ -853,6 +863,46 @@ class Realtime(Overlay):
                 hide_start=row_start + 1,
             )
 
+        # Country flag
+        if self.wcfg.get("show_country_flag", False):
+            self.bar_style_flg = (
+                self.wcfg.get("background_color_country_flag", "#222222"),
+                self.wcfg.get("background_color_player_country_flag", "#CCCCCC"),
+            )
+            self.bars_flg = self.set_rawimage(
+                width=self.flg_width,
+                fixed_height=font_m.height,
+                bg_color=self.bar_style_flg[0],
+                count=self.veh_range,
+            )
+            self.set_grid_layout_table_column(
+                layout=layout,
+                targets=self.bars_flg,
+                row_start=row_start,
+                column=self.wcfg.get("display_order_country_flag", 27),
+                hide_start=row_start + 1,
+            )
+
+        # Driver badge
+        if self.wcfg.get("show_driver_badge", False):
+            self.bar_style_bdg = (
+                self.wcfg.get("background_color_driver_badge", "#222222"),
+                self.wcfg.get("background_color_player_driver_badge", "#CCCCCC"),
+            )
+            self.bars_bdg = self.set_rawimage(
+                width=self.bdg_width,
+                fixed_height=font_m.height,
+                bg_color=self.bar_style_bdg[0],
+                count=self.veh_range,
+            )
+            self.set_grid_layout_table_column(
+                layout=layout,
+                targets=self.bars_bdg,
+                row_start=row_start,
+                column=self.wcfg.get("display_order_driver_badge", 28),
+                hide_start=row_start + 1,
+            )
+
         # Caption
         if self.wcfg["show_caption"]:
             # Hide pit status caption if none status background is transparent
@@ -1031,16 +1081,23 @@ class Realtime(Overlay):
             if self.wcfg["show_lift_and_coast_time"]:
                 self.update_lic(self.bars_lic[idx], veh_info.licoTimer.elapsed, veh_info.licoTimer.idling, hi_player, state)
             # Driver rating
+            rat_data = minfo.rating.ratings[std_idx] if std_idx >= 0 else None
             if self.wcfg.get("show_driver_rating", False):
-                rat_data = minfo.rating.ratings[std_idx] if std_idx >= 0 else None
                 tier = rat_data.tier if rat_data else ""
                 self.update_rat(self.bars_rat[idx], tier, hi_player, state)
             # Driver rating delta
             if show_rad and not hide_rad_column:
-                rat_data = minfo.rating.ratings[std_idx] if std_idx >= 0 else None
                 d_text = rat_data.deltaText if rat_data else ""
                 d_val = rat_data.projectedDelta if rat_data else 0.0
                 self.update_rad(self.bars_rad[idx], d_text, d_val, hi_player, state)
+            # Country flag
+            if self.wcfg.get("show_country_flag", False):
+                flag_code = rat_data.nationality if rat_data else ""
+                self.update_flg(self.bars_flg[idx], flag_code, hi_player, state)
+            # Driver badge
+            if self.wcfg.get("show_driver_badge", False):
+                badge_name = rat_data.badge if rat_data else ""
+                self.update_bdg(self.bars_bdg[idx], badge_name, hi_player, state)
 
     # GUI update methods
     def update_pos(self, target, *data):
@@ -1104,6 +1161,22 @@ class Realtime(Overlay):
             target.last = data
             target.image = self.set_brand_logo(data[0])
             target.bg = self.bar_style_brd[data[1]]
+            self.toggle_visibility(target, data[-1])
+
+    def update_flg(self, target, *data):
+        """Country flag"""
+        if target.last != data:
+            target.last = data
+            target.image = self.set_country_flag(data[0])
+            target.bg = self.bar_style_flg[data[1]]
+            self.toggle_visibility(target, data[-1])
+
+    def update_bdg(self, target, *data):
+        """Driver badge"""
+        if target.last != data:
+            target.last = data
+            target.image = self.set_driver_badge(data[0])
+            target.bg = self.bar_style_bdg[data[1]]
             self.toggle_visibility(target, data[-1])
 
     def update_gap(self, target, *data):
@@ -1447,6 +1520,42 @@ class Realtime(Overlay):
                 max_height=self.brd_height,
             )
         return self.pixmap_brandlogo[brand_name]
+
+    def set_country_flag(self, flag_code: str):
+        """Set country flag"""
+        if not flag_code:
+            return None
+        code = flag_code.upper().strip()
+        if code not in self.pixmap_flag:
+            flag_path = os.path.join(FILE.PATH_IMAGE, "Country Flags", f"{code}.png")
+            if not os.path.isfile(flag_path):
+                flag_path = os.path.join(FILE.PATH_IMAGE, "Country Flags", "global.png")
+            if os.path.isfile(flag_path):
+                img = QPixmap(flag_path)
+                self.pixmap_flag[code] = img.scaled(
+                    self.flg_width, self.flg_height,
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+            else:
+                self.pixmap_flag[code] = None
+        return self.pixmap_flag[code]
+
+    def set_driver_badge(self, badge_name: str):
+        """Set driver badge"""
+        if not badge_name:
+            return None
+        bdg = badge_name.lower().strip()
+        if bdg not in self.pixmap_badge:
+            badge_path = os.path.join(FILE.PATH_IMAGE, "Badges", f"{bdg}.png")
+            if os.path.isfile(badge_path):
+                img = QPixmap(badge_path)
+                self.pixmap_badge[bdg] = img.scaled(
+                    self.bdg_width, self.bdg_height,
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+            else:
+                self.pixmap_badge[bdg] = None
+        return self.pixmap_badge[bdg]
 
     def set_class_style(self, class_name: str):
         """Compare vehicle class name with user defined dictionary"""

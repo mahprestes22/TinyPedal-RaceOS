@@ -58,6 +58,7 @@ RACEOS_AUTH_URL = "https://raceos.gg/authenticate"
 RACEOS_EVENT_URL = "https://raceos.gg/api/v1/event/overview"
 RACEOS_PLAYERS_URL = "https://raceos.gg/api/v1/players"
 LMU_REST_STANDINGS_URL = "http://127.0.0.1:6397/rest/watch/standings"
+LMU_REST_TEAMS_URL = "http://127.0.0.1:6397/rest/multiplayer/teams"
 LMU_REST_VEHICLES_URL = "http://127.0.0.1:6397/rest/sessions/getAllVehicles"
 
 
@@ -133,12 +134,17 @@ class Realtime(DataModule):
         "_session_d",             # Event D divisor (default 420.0)
         "_ratings_enabled",       # Whether DR is enabled for this event
         "_lmu_log_dir",
+        "_lmu_teams_cache",       # name -> {"nationality": str, "badge": str}
+        "_player_nationality",
+        "_player_badge",
+        "_last_teams_fetch",
     )
 
     def __init__(self, config, module_name: str):
         super().__init__(config, module_name)
         self._lock = threading.Lock()
         self._raceos_cache: dict[str, dict] = {}
+        self._lmu_teams_cache: dict[str, dict] = {}
         self._rea_skills: dict[str, str] = {}
         self._access_token: str = ""
         self._access_token_expires: float = 0.0
@@ -146,6 +152,9 @@ class Realtime(DataModule):
         self._last_auth_time: float = 0.0
         self._last_players_fetch: float = 0.0
         self._last_event_check: float = 0.0
+        self._last_teams_fetch: float = 0.0
+        self._player_nationality: str = ""
+        self._player_badge: str = ""
         self._auth_ok: bool = False
         self._show_progress: bool = bool(self.mcfg.get("show_driver_rank_progress", True))
         self._event_id: str = ""
@@ -227,6 +236,52 @@ class Realtime(DataModule):
             pass
         return []
 
+    def _fetch_lmu_multiplayer_teams(self) -> None:
+        """Fetch multiplayer teams/drivers (nationality, badge) from local LMU REST API"""
+        try:
+            req = urllib.request.Request(
+                LMU_REST_TEAMS_URL, headers={"User-Agent": "SimHub/9.0"}
+            )
+            with urllib.request.urlopen(req, timeout=2.0) as r:
+                data = json.loads(r.read().decode())
+            drivers_dict = data.get("drivers", {})
+            if isinstance(drivers_dict, dict):
+                driver_items = drivers_dict.items()
+            elif isinstance(drivers_dict, list):
+                driver_items = [
+                    (d.get("name") or d.get("driverName", ""), d)
+                    for d in drivers_dict
+                    if isinstance(d, dict)
+                ]
+            else:
+                driver_items = []
+
+            teams_data = {}
+            for d_name, d_info in driver_items:
+                if not d_name or not isinstance(d_info, dict):
+                    continue
+                nat = (d_info.get("nationality") or "").strip().upper()
+                bdg = (
+                    d_info.get("badge")
+                    or d_info.get("Badge")
+                    or d_info.get("driverBadge")
+                    or d_info.get("DriverBadge")
+                    or d_info.get("safetyBadge")
+                    or d_info.get("SafetyBadge")
+                    or d_info.get("srBadge")
+                    or d_info.get("SrBadge")
+                    or ""
+                ).strip()
+                if bdg.lower() in ("none", "null", "undefined", "-"):
+                    bdg = ""
+                teams_data[d_name] = {"nationality": nat, "badge": bdg}
+
+            if teams_data:
+                with self._lock:
+                    self._lmu_teams_cache.update(teams_data)
+        except Exception:
+            pass
+
     def _authenticate(self) -> bool:
         """Authenticate with raceos.gg using Steam ticket — returns True if successful"""
         ticket = self._get_steam_ticket()
@@ -271,17 +326,27 @@ class Realtime(DataModule):
                 show_progress=self._show_progress, compact=True
             )
 
+            profile = player_data.get("profile", {})
+            my_nat = (profile.get("nationality") or player_data.get("nationality") or "").strip().upper()
+            my_bdg = (profile.get("badge") or player_data.get("badge") or "").strip()
+            if my_bdg.lower() in ("none", "null", "undefined", "-"):
+                my_bdg = ""
+
             with self._lock:
                 self._access_token = token
                 self._steam_ticket = ticket
                 self._auth_ok = True
                 self._access_token_expires = time.time() + 10800
+                self._player_nationality = my_nat
+                self._player_badge = my_bdg
                 if my_name:
                     self._raceos_cache[my_name] = {
                         "elo": my_elo,
                         "tier": tier_str,
                         "progress": my_progress,
                         "sr_tier": tier_from_raceos(my_sr_rank, my_sr_tier, compact=True),
+                        "nationality": my_nat,
+                        "badge": my_bdg,
                     }
 
             logger.info(
@@ -384,6 +449,11 @@ class Realtime(DataModule):
                 name = p.get("name") or p.get("username", "")
                 dr = p.get("driverRank", {})
                 sr = p.get("safetyRank", {})
+                profile = p.get("profile", {})
+                p_nat = (profile.get("nationality") or p.get("nationality") or "").strip().upper()
+                p_bdg = (profile.get("badge") or p.get("badge") or sr.get("badge") or "").strip()
+                if p_bdg.lower() in ("none", "null", "undefined", "-"):
+                    p_bdg = ""
                 if name and dr:
                     elo = float(dr.get("elo", 0.0))
                     rank = dr.get("rank", "Bronze")
@@ -402,6 +472,8 @@ class Realtime(DataModule):
                             int(sr.get("tier", 3)),
                             compact=True,
                         ),
+                        "nationality": p_nat,
+                        "badge": p_bdg,
                     }
 
             with self._lock:
@@ -439,12 +511,39 @@ class Realtime(DataModule):
 
     def _get_rating_for_driver(
         self, driver_name: str, default_rating: float, is_player: bool
-    ) -> tuple[float, str, str]:
-        """Return (elo, dr_tier_str, sr_tier_str) for a driver"""
+    ) -> tuple[float, str, str, str, str]:
+        """Return (elo, dr_tier_str, sr_tier_str, nationality, badge) for a driver"""
+        elo = default_rating
+        dr_tier = ""
+        sr_tier = ""
+        nat = ""
+        bdg = ""
+
         with self._lock:
             cached = self._raceos_cache.get(driver_name)
             if cached:
-                return cached["elo"], cached["tier"], cached.get("sr_tier", "")
+                elo = cached["elo"]
+                dr_tier = cached["tier"]
+                sr_tier = cached.get("sr_tier", "")
+                nat = cached.get("nationality", "")
+                bdg = cached.get("badge", "")
+
+            # Check LMU teams API
+            lmu_info = self._lmu_teams_cache.get(driver_name)
+            if lmu_info:
+                if not nat:
+                    nat = lmu_info.get("nationality", "")
+                if not bdg:
+                    bdg = lmu_info.get("badge", "")
+
+            if is_player:
+                if not nat and self._player_nationality:
+                    nat = self._player_nationality
+                if not bdg and self._player_badge:
+                    bdg = self._player_badge
+
+        if dr_tier:
+            return elo, dr_tier, sr_tier, nat, bdg
 
         # Fallback: skill from LMU catalog
         with self._lock:
@@ -459,13 +558,13 @@ class Realtime(DataModule):
         if skill:
             base = SKILL_TO_RATING.get(skill, default_rating)
             tier = get_tier_name(base, compact=True)
-            return base, tier, ""
+            return base, tier, "", nat, bdg
 
         # Hash-based deterministic fallback for unknown AI drivers
         seed = sum(ord(c) for c in driver_name)
         base = max(1100.0, default_rating + (seed % 900) - 450)
         tier = get_tier_name(base, compact=True)
-        return base, tier, ""
+        return base, tier, "", nat, bdg
 
     # -------------------------------------------------------------------------
     # Main update loop
@@ -485,6 +584,7 @@ class Realtime(DataModule):
         # Initial background tasks
         threading.Thread(target=self._authenticate, daemon=True).start()
         threading.Thread(target=self._fetch_rea_skills_fallback, daemon=True).start()
+        threading.Thread(target=self._fetch_lmu_multiplayer_teams, daemon=True).start()
 
         while not _event_wait(update_interval):
             minfo = tinypedal.minfo
@@ -519,11 +619,18 @@ class Realtime(DataModule):
                         target=self._fetch_event_overview, args=(ev_id,), daemon=True
                     ).start()
 
+            # Fetch LMU multiplayer teams periodically (every 5s)
+            if now - self._last_teams_fetch > 5.0:
+                self._last_teams_fetch = now
+                threading.Thread(
+                    target=self._fetch_lmu_multiplayer_teams, daemon=True
+                ).start()
+
             # Collect driver names from current session
             ratings_output = minfo.rating.ratings
             vehicles = minfo.vehicles.dataSet
 
-            class_drivers: dict[str, list[tuple[int, str, int, float, bool, str, str]]] = defaultdict(list)
+            class_drivers: dict[str, list[tuple[int, str, int, float, bool, str, str, str, str]]] = defaultdict(list)
             total_ratings: list[float] = []
             session_names: list[str] = []
 
@@ -536,15 +643,17 @@ class Realtime(DataModule):
                     target.tier = ""
                     target.projectedDelta = 0.0
                     target.deltaText = ""
+                    target.nationality = ""
+                    target.badge = ""
                     continue
 
                 session_names.append(driver_name)
                 cls_name = veh.vehicleClass if veh.vehicleClass else "Overall"
-                elo, dr_tier, sr_tier = self._get_rating_for_driver(
+                elo, dr_tier, sr_tier, nat, bdg = self._get_rating_for_driver(
                     driver_name, default_rating, veh.isPlayer
                 )
                 pos = veh.positionInClass if veh.positionInClass > 0 else veh.positionOverall
-                class_drivers[cls_name].append((idx, driver_name, pos, elo, veh.isPlayer, dr_tier, sr_tier))
+                class_drivers[cls_name].append((idx, driver_name, pos, elo, veh.isPlayer, dr_tier, sr_tier, nat, bdg))
                 total_ratings.append(elo)
 
             # Also fetch names directly from LMU REST standings to capture drivers in garage/lobby
@@ -574,21 +683,23 @@ class Realtime(DataModule):
             for cls_name, drivers in class_drivers.items():
                 n = len(drivers)
                 if n <= 1 or not calc_elo or not ratings_on:
-                    for idx, d_name, pos, elo, is_plr, dr_tier, sr_tier in drivers:
+                    for idx, d_name, pos, elo, is_plr, dr_tier, sr_tier, nat, bdg in drivers:
                         target = ratings_output[idx]
                         target.driverRating = elo
                         target.tier = dr_tier if dr_tier else get_tier_name(elo, compact=use_compact)
                         target.projectedDelta = 0.0
                         target.deltaText = "+0"
+                        target.nationality = nat
+                        target.badge = bdg
                     continue
 
                 drivers.sort(key=lambda x: x[2])
 
-                for i, (idx, d_name, pos_i, r_i, is_plr, dr_tier, sr_tier) in enumerate(drivers):
+                for i, (idx, d_name, pos_i, r_i, is_plr, dr_tier, sr_tier, nat, bdg) in enumerate(drivers):
                     actual_score = 0.0
                     expected_score = 0.0
 
-                    for j, (_, _, pos_j, r_j, _, _, _) in enumerate(drivers):
+                    for j, (_, _, pos_j, r_j, _, _, _, _, _) in enumerate(drivers):
                         if i == j:
                             continue
                         e_ij = 1.0 / (1.0 + 10.0 ** ((r_j - r_i) / d_divisor))
@@ -603,6 +714,8 @@ class Realtime(DataModule):
                     target.driverRating = r_i
                     target.tier = dr_tier if dr_tier else get_tier_name(r_i, compact=use_compact)
                     target.projectedDelta = delta
+                    target.nationality = nat
+                    target.badge = bdg
 
                     int_delta = int(round(delta))
                     if int_delta > 0:
