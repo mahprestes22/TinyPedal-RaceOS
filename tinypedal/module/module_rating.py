@@ -15,15 +15,22 @@ Flow (reverse-engineered from doX.LMU_SessionDataPlugin.dll):
   1. GET  http://127.0.0.1:6397/rest/profile/getAuthSessionTicket  -> Steam ticket
   2. POST https://raceos.gg/authenticate  body={"token":"<ticket>","game":"lmu","platform":"steam"}
        -> { accessToken, player: { driverRank: { elo, rank, tier, progress }, safetyRank: {...} } }
-  3. POST https://raceos.gg/api/v1/players  body={"usernames":["Name1","Name2",...]}
+  3. Detect online event ID from LMU trace log (UserData/Log/trace_*.txt)
+  4. POST https://raceos.gg/api/v1/event/overview  body={"game":"lmu","eventType":"daily","eventId":"<id>"}
+       Header: Game-Authorization: Bearer <accessToken>
+       -> Event Configuration (Ratings drSettings: base multiplier, k-factor, d divisor, enabled)
+  5. POST https://raceos.gg/api/v1/players  body={"usernames":["Name1","Name2",...]}
        Header: Game-Authorization: Bearer <accessToken>
        -> list of player objects with driverRank (rank, tier, progress) and safetyRank
 """
 
 from __future__ import annotations
 
+import glob
 import json
 import logging
+import os
+import re
 import time
 import threading
 import urllib.request
@@ -47,6 +54,7 @@ SKILL_TO_RATING = {
 # raceos.gg endpoints (from doX.LMU_SessionDataPlugin.dll reverse engineering)
 REA_TICKET_URL = "http://127.0.0.1:6397/rest/profile/getAuthSessionTicket"
 RACEOS_AUTH_URL = "https://raceos.gg/authenticate"
+RACEOS_EVENT_URL = "https://raceos.gg/api/v1/event/overview"
 RACEOS_PLAYERS_URL = "https://raceos.gg/api/v1/players"
 LMU_REST_STANDINGS_URL = "http://127.0.0.1:6397/rest/watch/standings"
 LMU_REST_VEHICLES_URL = "http://127.0.0.1:6397/rest/sessions/getAllVehicles"
@@ -87,7 +95,7 @@ def tier_from_raceos(
     show_progress: bool = True,
     compact: bool = True,
 ) -> str:
-    """Convert raceos.gg rank/tier/progress to display string (e.g. 'Silver', 2, 61.43 -> 'S2 61.4%')"""
+    """Convert raceos.gg rank/tier/progress to clean display string (e.g. 'Silver', 2, 61.4 -> 'S2 61%')"""
     rank_lower = rank.lower() if rank else ""
     if "platinum" in rank_lower:
         code = "P" if compact else "Platinum"
@@ -99,9 +107,7 @@ def tier_from_raceos(
         code = "B" if compact else "Bronze"
     base = f"{code}{tier}"
     if show_progress and progress is not None and progress > 0:
-        if progress % 1 == 0:
-            return f"{base} {int(progress)}%"
-        return f"{base} {progress:.1f}%"
+        return f"{base} {int(round(progress))}%"
     return base
 
 
@@ -117,8 +123,15 @@ class Realtime(DataModule):
         "_steam_ticket",
         "_last_auth_time",
         "_last_players_fetch",
+        "_last_event_check",
         "_auth_ok",
         "_show_progress",
+        "_event_id",
+        "_session_multiplier",    # Event DR multiplier (1.0, 1.5, 2.0 etc.)
+        "_session_k",             # Event K factor (default 30.0)
+        "_session_d",             # Event D divisor (default 420.0)
+        "_ratings_enabled",       # Whether DR is enabled for this event
+        "_lmu_log_dir",
     )
 
     def __init__(self, config, module_name: str):
@@ -131,11 +144,57 @@ class Realtime(DataModule):
         self._steam_ticket: str = ""
         self._last_auth_time: float = 0.0
         self._last_players_fetch: float = 0.0
+        self._last_event_check: float = 0.0
         self._auth_ok: bool = False
         self._show_progress: bool = bool(self.mcfg.get("show_driver_rank_progress", True))
+        self._event_id: str = ""
+        self._session_multiplier: float = 1.0
+        self._session_k: float = 30.0
+        self._session_d: float = 420.0
+        self._ratings_enabled: bool = True
+        self._lmu_log_dir: str = self._resolve_lmu_log_dir()
 
     # -------------------------------------------------------------------------
-    # raceos.gg auth flow (identical to doX.LMU_SessionDataPlugin.dll)
+    # Path resolution & LMU event detection
+    # -------------------------------------------------------------------------
+
+    def _resolve_lmu_log_dir(self) -> str:
+        """Find the LMU UserData/Log directory"""
+        candidates = [
+            r"C:\Program Files (x86)\Steam\steamapps\common\Le Mans Ultimate\UserData\Log",
+            r"D:\SteamLibrary\steamapps\common\Le Mans Ultimate\UserData\Log",
+            r"E:\SteamLibrary\steamapps\common\Le Mans Ultimate\UserData\Log",
+        ]
+        for path in candidates:
+            if os.path.isdir(path):
+                return path
+        return ""
+
+    def _detect_online_event_id(self) -> str:
+        """Parse the latest LMU trace file to detect online event GUID"""
+        if not self._lmu_log_dir or not os.path.isdir(self._lmu_log_dir):
+            return ""
+        try:
+            files = sorted(
+                glob.glob(os.path.join(self._lmu_log_dir, "trace_*.txt")),
+                key=os.path.getmtime,
+                reverse=True,
+            )
+            if not files:
+                return ""
+            latest_file = files[0]
+            with open(latest_file, "r", errors="ignore") as f:
+                content = f.read()
+            matches = re.findall(
+                r"Joining (?:race|practice) server for online event\s+([0-9a-fA-F-]{36})",
+                content,
+            )
+            return matches[-1] if matches else ""
+        except Exception:
+            return ""
+
+    # -------------------------------------------------------------------------
+    # raceos.gg auth & event overview
     # -------------------------------------------------------------------------
 
     def _get_steam_ticket(self) -> str:
@@ -194,7 +253,6 @@ class Realtime(DataModule):
             if not token:
                 return False
 
-            # Parse the player's own DR/SR from the auth response
             player_data = data.get("player", {})
             dr = player_data.get("driverRank", {})
             sr = player_data.get("safetyRank", {})
@@ -238,8 +296,59 @@ class Realtime(DataModule):
             logger.debug("rating: raceos.gg auth error: %s", e)
             return False
 
+    def _fetch_event_overview(self, event_id: str) -> None:
+        """Fetch event settings (multiplier, K factor, D divisor) from raceos.gg"""
+        with self._lock:
+            token = self._access_token
+            auth_ok = self._auth_ok
+
+        if not auth_ok or not token or not event_id:
+            return
+
+        for ev_type in ("daily", "weekly", "special"):
+            try:
+                body = json.dumps({
+                    "game": "lmu",
+                    "eventType": ev_type,
+                    "eventId": event_id,
+                }).encode()
+                req = urllib.request.Request(
+                    RACEOS_EVENT_URL,
+                    data=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Game-Authorization": f"Bearer {token}",
+                        "User-Agent": "SimHub/9.0",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    res = json.loads(r.read().decode())
+
+                cfg = res.get("configuration", {}).get("ratings", {})
+                dr_s = cfg.get("drSettings", {})
+                base_mult = float(dr_s.get("base", 1.0))
+                k_val = float(dr_s.get("k", 30.0))
+                d_val = float(dr_s.get("d", 420.0))
+                enabled = bool(cfg.get("enabled", True))
+
+                with self._lock:
+                    self._event_id = event_id
+                    self._session_multiplier = base_mult
+                    self._session_k = k_val
+                    self._session_d = d_val
+                    self._ratings_enabled = enabled
+
+                logger.info(
+                    "rating: event %s (%s) — multiplier=%.1fx, K=%.1f, D=%.1f, enabled=%s",
+                    event_id[:8], ev_type, base_mult, k_val, d_val, enabled,
+                )
+                break
+            except Exception:
+                continue
+
     def _fetch_players(self, names: list[str]) -> None:
-        """Fetch DR/SR for a list of driver names from raceos.gg (runs in background thread)"""
+        """Fetch DR/SR for driver names from raceos.gg"""
         with self._lock:
             token = self._access_token
             auth_ok = self._auth_ok
@@ -255,8 +364,6 @@ class Realtime(DataModule):
 
         try:
             body = json.dumps({"usernames": to_fetch}).encode()
-            # Verified via REA decompilation of doX.LMU_SessionDataPlugin.dll:
-            # Header MUST be 'Game-Authorization: Bearer <token>'
             req = urllib.request.Request(
                 RACEOS_PLAYERS_URL,
                 data=body,
@@ -400,6 +507,17 @@ class Realtime(DataModule):
                     self._last_auth_time = now
                     threading.Thread(target=self._authenticate, daemon=True).start()
 
+            # Check online event ID periodically (every 20s)
+            if now - self._last_event_check > 20.0:
+                self._last_event_check = now
+                ev_id = self._detect_online_event_id()
+                with self._lock:
+                    curr_ev = self._event_id
+                if ev_id and ev_id != curr_ev:
+                    threading.Thread(
+                        target=self._fetch_event_overview, args=(ev_id,), daemon=True
+                    ).start()
+
             # Collect driver names from current session
             ratings_output = minfo.rating.ratings
             vehicles = minfo.vehicles.dataSet
@@ -446,12 +564,15 @@ class Realtime(DataModule):
             if total_ratings:
                 minfo.rating.strengthOfField = sum(total_ratings) / len(total_ratings)
 
-            # Elo projections per class
-            k_factor = 24.0
+            # Retrieve dynamic event parameters (from raceos.gg event overview)
+            with self._lock:
+                effective_k = self._session_k * self._session_multiplier
+                d_divisor = self._session_d
+                ratings_on = self._ratings_enabled
 
             for cls_name, drivers in class_drivers.items():
                 n = len(drivers)
-                if n <= 1 or not calc_elo:
+                if n <= 1 or not calc_elo or not ratings_on:
                     for idx, d_name, pos, elo, is_plr, dr_tier, sr_tier in drivers:
                         target = ratings_output[idx]
                         target.driverRating = elo
@@ -469,14 +590,14 @@ class Realtime(DataModule):
                     for j, (_, _, pos_j, r_j, _, _, _) in enumerate(drivers):
                         if i == j:
                             continue
-                        e_ij = 1.0 / (1.0 + 10.0 ** ((r_j - r_i) / 400.0))
+                        e_ij = 1.0 / (1.0 + 10.0 ** ((r_j - r_i) / d_divisor))
                         expected_score += e_ij
                         if i < j:
                             actual_score += 1.0
                         elif i == j:
                             actual_score += 0.5
 
-                    delta = (actual_score - expected_score) * (k_factor / max(n - 1, 1))
+                    delta = (actual_score - expected_score) * (effective_k / max(n - 1, 1))
                     target = ratings_output[idx]
                     target.driverRating = r_i
                     target.tier = dr_tier if dr_tier else get_tier_name(r_i, compact=use_compact)
