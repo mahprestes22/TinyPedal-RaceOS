@@ -89,13 +89,6 @@ def copy_runtime_assets():
     asset_dirs = [
         "images",
         "docs",
-        "settings",
-        "brandlogo",
-        "carsetups",
-        "deltabest",
-        "pacenotes",
-        "trackmap",
-        "tracknotes",
     ]
     for d in asset_dirs:
         src = os.path.abspath(d)
