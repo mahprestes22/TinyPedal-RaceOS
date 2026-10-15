@@ -1127,7 +1127,7 @@ class Realtime(Overlay):
                 elif prefix == "G":
                     tier_bg = "#C8A400"   # Gold
                 elif prefix == "S":
-                    tier_bg = "#7A9BAA"   # Silver
+                    tier_bg = "#8F9499"   # Silver
                 else:
                     tier_bg = "#9B6033"   # Bronze
                 target.bg = tier_bg
