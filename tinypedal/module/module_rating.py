@@ -9,19 +9,28 @@
 #  (at your option) any later version.
 
 """
-Rating module - Driver Rating (DR) and Safety Rating (SR) processor for LMU / RaceControl
+Rating module - Driver Rating (DR) and Safety Rating (SR) processor for LMU / RaceControl / REA
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import urllib.request
 from collections import defaultdict
 
-from .. import minfo, realtime_state
 from ..constant import DATA
 from ._base import DataModule
 
 logger = logging.getLogger(__name__)
+
+# Base Elo rating mapped from official FIA/WEC/LMU driver skill categories
+SKILL_TO_RATING = {
+    "platinum": 3100.0,
+    "gold": 2550.0,
+    "silver": 1950.0,
+    "bronze": 1350.0,
+}
 
 
 def get_tier_name(rating: float) -> str:
@@ -49,18 +58,51 @@ def get_tier_name(rating: float) -> str:
 
 
 class Realtime(DataModule):
-    """Driver Rating and Elo calculation module"""
+    """Driver Rating and Elo calculation module using REA (rF2/LMU Enterprise Architecture)"""
 
-    __slots__ = ("_rating_cache",)
+    __slots__ = ("_rating_cache", "_rea_skills", "_last_rea_fetch")
 
     def __init__(self, config, module_name: str):
         super().__init__(config, module_name)
         self._rating_cache: dict[str, float] = {}
+        self._rea_skills: dict[str, str] = {}
+        self._last_rea_fetch: float = 0.0
+
+    def _fetch_rea_skills(self):
+        """Fetch driver skill classifications in a background thread"""
+        import threading
+        threading.Thread(target=self._rea_worker, daemon=True).start()
+
+    def _rea_worker(self):
+        """Worker thread to fetch skills from local LMU REA without blocking telemetry"""
+        try:
+            url = "http://127.0.0.1:6397/rest/sessions/getAllVehicles"
+            req = urllib.request.Request(url, headers={"User-Agent": "TinyPedal"})
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                for v in data:
+                    for d in v.get("drivers", []):
+                        name = d.get("name")
+                        skill = d.get("skill")
+                        if name and skill:
+                            self._rea_skills[name] = skill.lower()
+                            if skill.lower() in SKILL_TO_RATING:
+                                self._rating_cache[name] = SKILL_TO_RATING[skill.lower()]
+        except Exception:
+            pass  # REA might not be running or in menu
 
     def _get_base_rating(self, driver_name: str, default_rating: float) -> float:
-        """Get or estimate base rating for driver"""
+        """Get rating from REA cache or calculate deterministic fallback"""
         if driver_name in self._rating_cache:
             return self._rating_cache[driver_name]
+
+        # Check if driver has a known REA skill category
+        lower_name = driver_name.lower()
+        for known_name, skill in self._rea_skills.items():
+            if known_name.lower() in lower_name or lower_name in known_name.lower():
+                base = SKILL_TO_RATING.get(skill, default_rating)
+                self._rating_cache[driver_name] = base
+                return base
 
         # Hash-based deterministic rating for simulation/offline sessions
         seed = sum(ord(c) for c in driver_name)
@@ -71,16 +113,33 @@ class Realtime(DataModule):
 
     def update_data(self):
         """Update driver rating data in background thread"""
+        import time
+        import tinypedal
+
         _event_wait = self._event.wait
         update_interval = self.active_interval
         default_rating = float(self.mcfg.get("default_rating", 1500))
         calc_elo = bool(self.mcfg.get("enable_live_elo_projection", True))
 
-        ratings_output = minfo.rating.ratings
-        vehicles = minfo.vehicles.vehicles
+        # Initial fetch from REA
+        self._fetch_rea_skills()
 
         while not _event_wait(update_interval):
+            minfo = tinypedal.minfo
+            realtime_state = tinypedal.realtime_state
+
+            if minfo is None or realtime_state is None:
+                continue
+
             if not realtime_state.paused:
+                now = time.time()
+                if now - self._last_rea_fetch > 10.0:
+                    self._last_rea_fetch = now
+                    self._fetch_rea_skills()
+
+                ratings_output = minfo.rating.ratings
+                vehicles = minfo.vehicles.dataSet
+
                 # Group active vehicles by class
                 class_drivers: dict[str, list[tuple[int, str, int, float]]] = defaultdict(list)
                 total_ratings: list[float] = []
