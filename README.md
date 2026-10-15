@@ -20,6 +20,18 @@
     - ⚪ **Silver**: `#8F9499`
     - 🟤 **Bronze**: `#9B6033`
   - Toggle checkbox in widget settings to switch between tier colors and standard colors.
+- 🏁 **Driver Country Flags:**
+  - Displays national flag for each driver fetched from LMU multiplayer and raceos.gg API.
+  - Includes 260+ high-resolution flags with smooth anti-aliased scaling and global fallback.
+  - Toggleable and customizable column width and display order across Standings, Relative, and Rivals widgets.
+- 💎 **Driver Safety & Behavior Badges:**
+  - Displays live reputation and driver status badges:
+    - 💎 **Diamond** (`sr-clean`): Top-tier clean racing record with zero repeated contact.
+    - 🛡️ **Saint** (`sr-saint`): Consistent exemplary on-track behavior.
+    - ⚠️ **Warning / Danger** (`sr-warning`, `sr-danger`): Incident-prone warnings.
+    - 🚫 **Probation** (`sr-probation`): Driver under post-ban probationary monitoring.
+    - 🎥 **Special Roles** (`content-creator`, `irl-driver`, `team-member`): Verified real-world drivers and creators.
+  - Toggleable and customizable column width in widget settings.
 - 🔴 **Compact 2x2 Tire Dot Matrix:**
   - Displays tire compounds for all 4 wheels in a minimalist 2x2 dot grid to save horizontal screen real estate.
 - ⏱️ **Context-Aware Column Auto-Hide:**
@@ -34,6 +46,13 @@
 - 📊 **Driver Rating Real (raceos.gg):** Exibe o DR e tier de todos os pilotos do grid em tempo real, com porcentagem de progresso exata.
 - 📈 **Projeção ao Vivo de Ganho/Perda de DR (+/-):** Cálculo de variação de Elo volta a volta durante a corrida, com suporte aos multiplicadores de pontuação (1.5x e 2.0x).
 - 🎨 **Cores Oficiais de Tier:** Destaque visual idêntico ao jogo para cada categoria de licença (Platina 🟦, Ouro 🟡, Prata ⚪, Bronze 🟤) com opção de ativar/desativar nas configurações.
+- 🏁 **Bandeiras de Nacionalidade:** Exibe a bandeira do país de cada piloto nos widgets Standings, Relative e Rivals com suporte a mais de 260 países e fallback automático.
+- 💎 **Badges de Conduta e Comportamento:** Identificação visual da reputação do piloto:
+  - 💎 **Diamante** (`sr-clean`): Nível mais alto de pilotagem limpa / sem toques.
+  - 🛡️ **Santo** (`sr-saint`): Conduta exemplar contínua.
+  - 🚫 **Probatório** (`sr-probation`): Piloto em retorno de banimento sob monitoramento.
+  - ⚠️ **Avisos** (`sr-warning`, `sr-danger`): Indicadores de perigo / reincidência.
+  - 🎥 **Verificados** (`content-creator`, `irl-driver`, `team-member`): Criadores de conteúdo e pilotos reais.
 - 🔴 **Grid de Pneus 2x2 em Bolinhas:** Visualização compacta dos 4 compostos de pneus sem ocupar espaço horizontal excessivo.
 - ⏱️ **Recolhimento Inteligente de Coluna:** A coluna de projeção (`+/-`) se oculta automaticamente nos treinos e qualificação, aparecendo apenas na corrida.
 - 💎 **Visual Moderno Dark Glass:** Gradientes suaves, cantos arredondados e acabamento translúcido limpo.
