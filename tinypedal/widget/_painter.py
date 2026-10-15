@@ -591,7 +591,7 @@ class RawFrame(QWidget):
 
 
 class MultiCompounds(QWidget):
-    """Multi color compounds text"""
+    """Multi color compounds text or 2x2 dot grid"""
 
     def __init__(
         self,
@@ -606,12 +606,19 @@ class MultiCompounds(QWidget):
         fg_color: str = "",
         bg_color: str = "",
         last: Any | None = None,
+        as_dots: bool = False,
     ):
         super().__init__(parent)
         if font is not None:
             self.setFont(font)
 
-        self.setFixedWidth(count * (width + spacing) + padding * 2)
+        self.as_dots = as_dots
+        if as_dots and count == 4:
+            # Compact 2x2 dot grid width (~20-22px instead of 45px)
+            col_w = max(int(height * 0.95), 18)
+            self.setFixedWidth(col_w + padding * 2)
+        else:
+            self.setFixedWidth(count * (width + spacing) + padding * 2)
         self.setFixedHeight(height)
 
         self.state = None
@@ -662,19 +669,47 @@ class MultiCompounds(QWidget):
                     painter.setPen(QPen(QColor(255, 255, 255, 14), 1))
                 painter.drawRoundedRect(QRectF(0.5, 0.5, self._width - 1, self._height - 1), 2.5, 2.5)
 
-        for index, compound in enumerate(self.compounds):
-            if compound == "":
-                continue
-            self._pen_text.setColor(self.colors[index])
-            painter.setPen(self._pen_text)
-            painter.drawText(
-                self._padding + self._word_width * index,
-                self._offset_y,
-                self._word_width,
-                self._height,
-                Qt.AlignCenter,
-                compound,
+        if self.as_dots and self._count == 4:
+            # 2x2 dot grid: Top-Left=FL, Top-Right=FR, Bottom-Left=RL, Bottom-Right=RR
+            avail_h = self._height - 4
+            dot_d = max(4.5, avail_h * 0.40)
+            gap = max(2.0, dot_d * 0.38)
+            grid_w = dot_d * 2.0 + gap
+            grid_h = dot_d * 2.0 + gap
+            start_x = (self._width - grid_w) / 2.0
+            start_y = (self._height - grid_h) / 2.0
+
+            coords = (
+                (start_x, start_y),                      # FL (Front Left)
+                (start_x + dot_d + gap, start_y),        # FR (Front Right)
+                (start_x, start_y + dot_d + gap),        # RL (Rear Left)
+                (start_x + dot_d + gap, start_y + dot_d + gap), # RR (Rear Right)
             )
+
+            painter.setPen(Qt.NoPen)
+            for idx in range(min(4, len(self.colors))):
+                col_val = self.colors[idx]
+                col = QColor(col_val)
+                if not col.isValid() or col.alpha() == 0 or (idx < len(self.compounds) and not self.compounds[idx]):
+                    painter.setBrush(QBrush(QColor(60, 60, 60, 160)))
+                else:
+                    painter.setBrush(QBrush(col))
+                cx, cy = coords[idx]
+                painter.drawEllipse(QRectF(cx, cy, dot_d, dot_d))
+        else:
+            for index, compound in enumerate(self.compounds):
+                if compound == "":
+                    continue
+                self._pen_text.setColor(self.colors[index])
+                painter.setPen(self._pen_text)
+                painter.drawText(
+                    self._padding + self._word_width * index,
+                    self._offset_y,
+                    self._word_width,
+                    self._height,
+                    Qt.AlignCenter,
+                    compound,
+                )
 
 
 class DeltaLapTime(QWidget):

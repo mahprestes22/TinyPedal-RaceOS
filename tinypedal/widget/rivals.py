@@ -370,7 +370,8 @@ class Realtime(Overlay):
             )
         # Tyre compound
         if self.wcfg["show_tyre_compound"]:
-            self.count_tcp = 4 if self.wcfg["show_compound_for_each_wheel"] else 1
+            use_dots = bool(self.wcfg.get("show_compound_as_dots", True))
+            self.count_tcp = 4 if (self.wcfg["show_compound_for_each_wheel"] or use_dots) else 1
             self.bars_tcp = tuple(
                 MultiCompounds(
                     parent=self,
@@ -382,6 +383,7 @@ class Realtime(Overlay):
                     offset_y=font_m.voffset,
                     fg_color=self.wcfg["font_color_tyre_compound"],
                     bg_color=self.wcfg["background_color_tyre_compound"],
+                    as_dots=use_dots,
                 )
                 for _ in range(self.veh_range)
             )
@@ -953,7 +955,7 @@ class Realtime(Overlay):
             # All compounds
             else:
                 target.compounds = tuple(select_compound_symbol(name) for name in data[0])
-                if self.wcfg["show_compound_color_by_type"]:
+                if self.wcfg["show_compound_color_by_type"] or getattr(target, "as_dots", False):
                     target.colors = tuple(select_compound_color(name) for name in data[0])
             self.toggle_visibility(target, data[-1])
 
@@ -1101,6 +1103,12 @@ class Realtime(Overlay):
         """Driver rating delta"""
         if target.last != data:
             target.last = data
+            if not data[0]:
+                target.text = ""
+                target.fg = Qt.transparent
+                target.bg = Qt.transparent
+                self.toggle_visibility(target, data[-1])
+                return
             delta_val = data[1]
             if delta_val > 0:
                 color_index = 0  # gain (green)

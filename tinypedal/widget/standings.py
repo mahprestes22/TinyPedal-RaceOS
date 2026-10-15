@@ -498,7 +498,8 @@ class Realtime(Overlay):
             )
         # Tyre compound
         if self.wcfg["show_tyre_compound"]:
-            self.count_tcp = 4 if self.wcfg["show_compound_for_each_wheel"] else 1
+            use_dots = bool(self.wcfg.get("show_compound_as_dots", True))
+            self.count_tcp = 4 if (self.wcfg["show_compound_for_each_wheel"] or use_dots) else 1
             self.bar_style_tcp = (
                 (
                     self.wcfg["font_color_tyre_compound"],
@@ -520,6 +521,7 @@ class Realtime(Overlay):
                     offset_y=font_m.voffset,
                     fg_color=self.bar_style_tcp[0][0],
                     bg_color=self.bar_style_tcp[0][1],
+                    as_dots=use_dots,
                 )
                 for _ in range(self.veh_range)
             )
@@ -1177,7 +1179,10 @@ class Realtime(Overlay):
             target.last = data
             color = self.bar_style_tcp[data[1]]
             target.bg = color[1]
-            show_color_by_type = (not data[1] and self.wcfg["show_compound_color_by_type"])
+            show_color_by_type = (
+                (not data[1] and self.wcfg["show_compound_color_by_type"])
+                or getattr(target, "as_dots", False)
+            )
             # Single compound
             if self.count_tcp == 1:
                 compound = data[0][0]
@@ -1361,6 +1366,12 @@ class Realtime(Overlay):
         """Driver rating delta"""
         if target.last != data:
             target.last = data
+            if not data[0]:
+                target.text = ""
+                target.fg = Qt.transparent
+                target.bg = Qt.transparent
+                self.toggle_visibility(target, data[-1])
+                return
             delta_val = data[1]
             if data[2]:  # player
                 color_index = 0 if delta_val >= 0 else 1

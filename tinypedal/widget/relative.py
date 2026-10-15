@@ -413,7 +413,8 @@ class Realtime(Overlay):
             )
         # Tyre compound
         if self.wcfg["show_tyre_compound"]:
-            self.count_tcp = 4 if self.wcfg["show_compound_for_each_wheel"] else 1
+            use_dots = bool(self.wcfg.get("show_compound_as_dots", True))
+            self.count_tcp = 4 if (self.wcfg["show_compound_for_each_wheel"] or use_dots) else 1
             self.bar_style_tcp = (
                 (
                     self.wcfg["font_color_tyre_compound"],
@@ -435,6 +436,7 @@ class Realtime(Overlay):
                     offset_y=font_m.voffset,
                     fg_color=self.bar_style_tcp[0][0],
                     bg_color=self.bar_style_tcp[0][1],
+                    as_dots=use_dots,
                 )
                 for _ in range(self.veh_range)
             )
@@ -1101,7 +1103,10 @@ class Realtime(Overlay):
             target.last = data
             color = self.bar_style_tcp[data[1]]
             target.bg = color[1]
-            show_color_by_type = (not data[1] and self.wcfg["show_compound_color_by_type"])
+            show_color_by_type = (
+                (not data[1] and self.wcfg["show_compound_color_by_type"])
+                or getattr(target, "as_dots", False)
+            )
             if not data[-1]:
                 target.compounds = ("",) * self.count_tcp
             # Single compound
@@ -1310,6 +1315,12 @@ class Realtime(Overlay):
         """Driver rating delta"""
         if target.last != data:
             target.last = data
+            if not data[0] or not data[-1]:
+                target.text = ""
+                target.fg = Qt.transparent
+                target.bg = Qt.transparent
+                target.update()
+                return
             delta_val = data[1]
             if data[2]:  # player
                 color_index = 0 if delta_val >= 0 else 1
@@ -1319,7 +1330,7 @@ class Realtime(Overlay):
                 color_index = 1  # loss (red)
             else:
                 color_index = 2  # neutral
-            target.text = data[0] if data[-1] else ""
+            target.text = data[0]
             target.fg = self.bar_style_rad[color_index]
             target.bg = self.bar_style_rat[0][1]
             target.update()
