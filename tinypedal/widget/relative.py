@@ -716,7 +716,7 @@ class Realtime(Overlay):
             )
             self.bars_rat = self.set_rawtext(
                 padding=bar_padx,
-                width=3 * font_m.width,
+                width=8 * font_m.width,
                 fixed_height=font_m.height,
                 offset_y=font_m.voffset,
                 fg_color=self.bar_style_rat[0][0],

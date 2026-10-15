@@ -16,9 +16,8 @@ Flow (reverse-engineered from doX.LMU_SessionDataPlugin.dll):
   2. POST https://raceos.gg/authenticate  body={"token":"<ticket>","game":"lmu","platform":"steam"}
        -> { accessToken, player: { driverRank: { elo, rank, tier, progress }, safetyRank: {...} } }
   3. POST https://raceos.gg/api/v1/players  body={"usernames":["Name1","Name2",...]}
-       Header: Authorization: Bearer <accessToken>
-       Header: Game-Authorization: <steam_ticket>
-       -> list of player objects with driverRank and safetyRank
+       Header: Game-Authorization: Bearer <accessToken>
+       -> list of player objects with driverRank (rank, tier, progress) and safetyRank
 """
 
 from __future__ import annotations
@@ -49,6 +48,7 @@ SKILL_TO_RATING = {
 REA_TICKET_URL = "http://127.0.0.1:6397/rest/profile/getAuthSessionTicket"
 RACEOS_AUTH_URL = "https://raceos.gg/authenticate"
 RACEOS_PLAYERS_URL = "https://raceos.gg/api/v1/players"
+LMU_REST_STANDINGS_URL = "http://127.0.0.1:6397/rest/watch/standings"
 LMU_REST_VEHICLES_URL = "http://127.0.0.1:6397/rest/sessions/getAllVehicles"
 
 
@@ -80,8 +80,14 @@ def get_tier_name(rating: float, compact: bool = True) -> str:
         return "P1" if compact else "Platinum 1"
 
 
-def tier_from_raceos(rank: str, tier: int, compact: bool = True) -> str:
-    """Convert raceos.gg rank/tier to compact display string (e.g. 'Silver', 2 -> 'S2')"""
+def tier_from_raceos(
+    rank: str,
+    tier: int,
+    progress: float | None = None,
+    show_progress: bool = True,
+    compact: bool = True,
+) -> str:
+    """Convert raceos.gg rank/tier/progress to display string (e.g. 'Silver', 2, 61.43 -> 'S2 61.4%')"""
     rank_lower = rank.lower() if rank else ""
     if "platinum" in rank_lower:
         code = "P" if compact else "Platinum"
@@ -91,7 +97,12 @@ def tier_from_raceos(rank: str, tier: int, compact: bool = True) -> str:
         code = "S" if compact else "Silver"
     else:
         code = "B" if compact else "Bronze"
-    return f"{code}{tier}"
+    base = f"{code}{tier}"
+    if show_progress and progress is not None and progress > 0:
+        if progress % 1 == 0:
+            return f"{base} {int(progress)}%"
+        return f"{base} {progress:.1f}%"
+    return base
 
 
 class Realtime(DataModule):
@@ -99,7 +110,7 @@ class Realtime(DataModule):
 
     __slots__ = (
         "_lock",
-        "_raceos_cache",          # name -> {"elo": float, "tier": str, "sr_tier": str}
+        "_raceos_cache",          # name -> {"elo": float, "tier": str, "progress": float, "sr_tier": str}
         "_rea_skills",            # name -> "gold"/"silver" etc (fallback from LMU catalog)
         "_access_token",
         "_access_token_expires",
@@ -107,6 +118,7 @@ class Realtime(DataModule):
         "_last_auth_time",
         "_last_players_fetch",
         "_auth_ok",
+        "_show_progress",
     )
 
     def __init__(self, config, module_name: str):
@@ -120,6 +132,7 @@ class Realtime(DataModule):
         self._last_auth_time: float = 0.0
         self._last_players_fetch: float = 0.0
         self._auth_ok: bool = False
+        self._show_progress: bool = bool(self.mcfg.get("show_driver_rank_progress", True))
 
     # -------------------------------------------------------------------------
     # raceos.gg auth flow (identical to doX.LMU_SessionDataPlugin.dll)
@@ -137,6 +150,23 @@ class Realtime(DataModule):
         except Exception:
             return ""
 
+    def _get_lmu_standings_drivers(self) -> list[str]:
+        """Fetch driver names currently in the session via LMU REST API"""
+        try:
+            req = urllib.request.Request(
+                LMU_REST_STANDINGS_URL, headers={"User-Agent": "SimHub/9.0"}
+            )
+            with urllib.request.urlopen(req, timeout=1.5) as r:
+                data = json.loads(r.read().decode())
+                if isinstance(data, list):
+                    return [d["driverName"] for d in data if isinstance(d, dict) and "driverName" in d]
+                elif isinstance(data, dict):
+                    veh_list = data.get("vehicles", data.get("Vehicles", []))
+                    return [d["driverName"] for d in veh_list if isinstance(d, dict) and "driverName" in d]
+        except Exception:
+            pass
+        return []
+
     def _authenticate(self) -> bool:
         """Authenticate with raceos.gg using Steam ticket — returns True if successful"""
         ticket = self._get_steam_ticket()
@@ -153,7 +183,7 @@ class Realtime(DataModule):
                 data=body,
                 headers={
                     "Content-Type": "application/json",
-                    "User-Agent": "TinyPedal/1.0",
+                    "User-Agent": "SimHub/9.0",
                 },
                 method="POST",
             )
@@ -161,7 +191,6 @@ class Realtime(DataModule):
                 data = json.loads(r.read().decode())
 
             token = data.get("accessToken", "")
-            expires_str = data.get("expiresAt", "")
             if not token:
                 return False
 
@@ -173,27 +202,32 @@ class Realtime(DataModule):
             my_elo = float(dr.get("elo", 1780.0))
             my_rank = dr.get("rank", "Silver")
             my_tier_num = int(dr.get("tier", 2))
+            my_progress = float(dr.get("progress", 0.0))
             my_sr_rank = sr.get("rank", "Gold")
             my_sr_tier = int(sr.get("tier", 2))
             my_name = player_data.get("name", player_data.get("username", ""))
+
+            tier_str = tier_from_raceos(
+                my_rank, my_tier_num, my_progress,
+                show_progress=self._show_progress, compact=True
+            )
 
             with self._lock:
                 self._access_token = token
                 self._steam_ticket = ticket
                 self._auth_ok = True
-                # Token expires parsing (approximate: treat as 3h from now if can't parse)
                 self._access_token_expires = time.time() + 10800
-                # Cache player's own data immediately
                 if my_name:
                     self._raceos_cache[my_name] = {
                         "elo": my_elo,
-                        "tier": tier_from_raceos(my_rank, my_tier_num, compact=True),
+                        "tier": tier_str,
+                        "progress": my_progress,
                         "sr_tier": tier_from_raceos(my_sr_rank, my_sr_tier, compact=True),
                     }
 
             logger.info(
-                "rating: raceos.gg auth OK — %s DR=%s%s elo=%.1f SR=%s%s",
-                my_name, my_rank, my_tier_num, my_elo, my_sr_rank, my_sr_tier,
+                "rating: raceos.gg auth OK — %s DR=%s elo=%.1f SR=%s%s",
+                my_name, tier_str, my_elo, my_sr_rank, my_sr_tier,
             )
             return True
 
@@ -208,13 +242,11 @@ class Realtime(DataModule):
         """Fetch DR/SR for a list of driver names from raceos.gg (runs in background thread)"""
         with self._lock:
             token = self._access_token
-            ticket = self._steam_ticket
             auth_ok = self._auth_ok
 
         if not auth_ok or not token or not names:
             return
 
-        # Filter out names we already have fresh data for
         with self._lock:
             to_fetch = [n for n in names if n not in self._raceos_cache]
 
@@ -223,14 +255,15 @@ class Realtime(DataModule):
 
         try:
             body = json.dumps({"usernames": to_fetch}).encode()
+            # Verified via REA decompilation of doX.LMU_SessionDataPlugin.dll:
+            # Header MUST be 'Game-Authorization: Bearer <token>'
             req = urllib.request.Request(
                 RACEOS_PLAYERS_URL,
                 data=body,
                 headers={
                     "Content-Type": "application/json",
-                    "Authorization": f"Bearer {token}",
-                    "Game-Authorization": ticket,
-                    "User-Agent": "TinyPedal/1.0",
+                    "Game-Authorization": f"Bearer {token}",
+                    "User-Agent": "SimHub/9.0",
                 },
                 method="POST",
             )
@@ -244,14 +277,18 @@ class Realtime(DataModule):
                 dr = p.get("driverRank", {})
                 sr = p.get("safetyRank", {})
                 if name and dr:
-                    elo = float(dr.get("elo", 1500.0))
+                    elo = float(dr.get("elo", 0.0))
+                    rank = dr.get("rank", "Bronze")
+                    tier_num = int(dr.get("tier", 3))
+                    prog = float(dr.get("progress", 0.0))
+                    tier_str = tier_from_raceos(
+                        rank, tier_num, prog,
+                        show_progress=self._show_progress, compact=True
+                    )
                     updates[name] = {
-                        "elo": elo,
-                        "tier": tier_from_raceos(
-                            dr.get("rank", "Bronze"),
-                            int(dr.get("tier", 3)),
-                            compact=True,
-                        ),
+                        "elo": elo if elo > 0 else SKILL_TO_RATING.get(rank.lower(), 1350.0),
+                        "tier": tier_str,
+                        "progress": prog,
                         "sr_tier": tier_from_raceos(
                             sr.get("rank", "Bronze"),
                             int(sr.get("tier", 3)),
@@ -262,11 +299,10 @@ class Realtime(DataModule):
             with self._lock:
                 self._raceos_cache.update(updates)
 
-            logger.debug("rating: fetched %d/%d players from raceos.gg", len(updates), len(to_fetch))
+            logger.info("rating: fetched %d/%d players from raceos.gg", len(updates), len(to_fetch))
 
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                # Token expired — trigger re-auth
                 with self._lock:
                     self._auth_ok = False
             logger.debug("rating: players fetch HTTP %s", e.code)
@@ -306,7 +342,6 @@ class Realtime(DataModule):
         with self._lock:
             skill = self._rea_skills.get(driver_name)
             if skill is None:
-                # Fuzzy match
                 dl = driver_name.lower()
                 for kname, kskill in self._rea_skills.items():
                     if kname.lower() in dl or dl in kname.lower():
@@ -337,6 +372,7 @@ class Realtime(DataModule):
         default_rating = float(self.mcfg.get("default_rating", 1500))
         use_compact = bool(self.mcfg.get("use_compact_tier_format", True))
         calc_elo = bool(self.mcfg.get("enable_live_elo_projection", True))
+        self._show_progress = bool(self.mcfg.get("show_driver_rank_progress", True))
 
         # Initial background tasks
         threading.Thread(target=self._authenticate, daemon=True).start()
@@ -392,8 +428,14 @@ class Realtime(DataModule):
                 class_drivers[cls_name].append((idx, driver_name, pos, elo, veh.isPlayer, dr_tier, sr_tier))
                 total_ratings.append(elo)
 
-            # Trigger background player fetch if we have names not yet cached
-            if session_names and now - self._last_players_fetch > 15.0:
+            # Also fetch names directly from LMU REST standings to capture drivers in garage/lobby
+            lmu_names = self._get_lmu_standings_drivers()
+            for ln in lmu_names:
+                if ln and ln not in session_names:
+                    session_names.append(ln)
+
+            # Trigger background player fetch if we have uncached drivers
+            if session_names and now - self._last_players_fetch > 10.0:
                 self._last_players_fetch = now
                 names_copy = list(session_names)
                 threading.Thread(
