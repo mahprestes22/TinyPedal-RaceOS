@@ -25,7 +25,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide2.QtCore import QRectF, Qt
-from PySide2.QtGui import QFont, QPainter, QPen, QPixmap
+from PySide2.QtGui import QFont, QPainter, QPen, QPixmap, QColor, QLinearGradient, QBrush
 from PySide2.QtWidgets import QWidget
 
 
@@ -446,9 +446,30 @@ class RawText(QWidget):
     def paintEvent(self, event):
         """Draw"""
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        if self.bg != Qt.transparent and self.bg:
+            bg_col = QColor(self.bg)
+            if bg_col.isValid() and bg_col.alpha() > 0:
+                grad = QLinearGradient(0, 0, 0, self._height)
+                lum = bg_col.lightness()
+                if lum > 140:
+                    # Player highlight
+                    grad.setColorAt(0.0, bg_col.lighter(106))
+                    grad.setColorAt(1.0, bg_col.darker(110))
+                    painter.setBrush(QBrush(grad))
+                    painter.setPen(QPen(QColor(0, 210, 255, 180), 1))
+                else:
+                    # Standard Dark Glass gradient
+                    grad.setColorAt(0.0, bg_col.lighter(116))
+                    grad.setColorAt(0.5, bg_col)
+                    grad.setColorAt(1.0, bg_col.darker(110))
+                    painter.setBrush(QBrush(grad))
+                    painter.setPen(QPen(QColor(255, 255, 255, 14), 1))
+                painter.drawRoundedRect(QRectF(0.5, 0.5, self._width - 1, self._height - 1), 2.5, 2.5)
+
         self._pen_text.setColor(self.fg)
         painter.setPen(self._pen_text)
-        painter.fillRect(0, 0, self._width, self._height, self.bg)
         painter.drawText(self._offset_x, self._offset_y, self._width, self._height, self._alignment, self.text)
 
 
@@ -497,7 +518,25 @@ class RawImage(QWidget):
     def paintEvent(self, event):
         """Draw"""
         painter = QPainter(self)
-        painter.fillRect(0, 0, self._width, self._height, self.bg)
+        painter.setRenderHint(QPainter.Antialiasing)
+        if self.bg != Qt.transparent and self.bg:
+            bg_col = QColor(self.bg)
+            if bg_col.isValid() and bg_col.alpha() > 0:
+                grad = QLinearGradient(0, 0, 0, self._height)
+                lum = bg_col.lightness()
+                if lum > 140:
+                    grad.setColorAt(0.0, bg_col.lighter(106))
+                    grad.setColorAt(1.0, bg_col.darker(110))
+                    painter.setBrush(QBrush(grad))
+                    painter.setPen(QPen(QColor(0, 210, 255, 180), 1))
+                else:
+                    grad.setColorAt(0.0, bg_col.lighter(116))
+                    grad.setColorAt(0.5, bg_col)
+                    grad.setColorAt(1.0, bg_col.darker(110))
+                    painter.setBrush(QBrush(grad))
+                    painter.setPen(QPen(QColor(255, 255, 255, 14), 1))
+                painter.drawRoundedRect(QRectF(0.5, 0.5, self._width - 1, self._height - 1), 2.5, 2.5)
+
         if isinstance(self.image, QPixmap):
             painter.drawPixmap(
                 (self._width - self.image.width()) // 2,  # align center
@@ -603,7 +642,26 @@ class MultiCompounds(QWidget):
     def paintEvent(self, event):
         """Draw"""
         painter = QPainter(self)
-        painter.fillRect(0, 0, self._width, self._height, self.bg)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        if self.bg != Qt.transparent and self.bg:
+            bg_col = QColor(self.bg)
+            if bg_col.isValid() and bg_col.alpha() > 0:
+                grad = QLinearGradient(0, 0, 0, self._height)
+                lum = bg_col.lightness()
+                if lum > 140:
+                    grad.setColorAt(0.0, bg_col.lighter(106))
+                    grad.setColorAt(1.0, bg_col.darker(110))
+                    painter.setBrush(QBrush(grad))
+                    painter.setPen(QPen(QColor(0, 210, 255, 180), 1))
+                else:
+                    grad.setColorAt(0.0, bg_col.lighter(116))
+                    grad.setColorAt(0.5, bg_col)
+                    grad.setColorAt(1.0, bg_col.darker(110))
+                    painter.setBrush(QBrush(grad))
+                    painter.setPen(QPen(QColor(255, 255, 255, 14), 1))
+                painter.drawRoundedRect(QRectF(0.5, 0.5, self._width - 1, self._height - 1), 2.5, 2.5)
+
         for index, compound in enumerate(self.compounds):
             if compound == "":
                 continue
@@ -679,7 +737,26 @@ class DeltaLapTime(QWidget):
     def paintEvent(self, event):
         """Draw"""
         painter = QPainter(self)
-        painter.fillRect(0, 0, self._width, self._height, self.bg)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        if self.bg != Qt.transparent and self.bg:
+            bg_col = QColor(self.bg)
+            if bg_col.isValid() and bg_col.alpha() > 0:
+                grad = QLinearGradient(0, 0, 0, self._height)
+                lum = bg_col.lightness()
+                if lum > 140:
+                    grad.setColorAt(0.0, bg_col.lighter(106))
+                    grad.setColorAt(1.0, bg_col.darker(110))
+                    painter.setBrush(QBrush(grad))
+                    painter.setPen(QPen(QColor(0, 210, 255, 180), 1))
+                else:
+                    grad.setColorAt(0.0, bg_col.lighter(116))
+                    grad.setColorAt(0.5, bg_col)
+                    grad.setColorAt(1.0, bg_col.darker(110))
+                    painter.setBrush(QBrush(grad))
+                    painter.setPen(QPen(QColor(255, 255, 255, 14), 1))
+                painter.drawRoundedRect(QRectF(0.5, 0.5, self._width - 1, self._height - 1), 2.5, 2.5)
+
         for index, delta in enumerate(
             reversed(self.delta) if self._inverted else self.delta
         ):
