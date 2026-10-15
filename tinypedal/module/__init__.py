@@ -20,8 +20,12 @@
 Data modules
 """
 
+import importlib
+
 from ..setting.default_module import MODULE_FILENAME
 
 __all__ = MODULE_FILENAME
 
-from . import *
+for _mod in __all__:
+    importlib.import_module(f".{_mod}", __package__)
+

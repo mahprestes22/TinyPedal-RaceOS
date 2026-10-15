@@ -20,8 +20,12 @@
 Widget modules
 """
 
+import importlib
+
 from ..setting.default_widget import WIDGET_FILENAME
 
 __all__ = WIDGET_FILENAME
 
-from . import *
+for _mod in __all__:
+    importlib.import_module(f".{_mod}", __package__)
+

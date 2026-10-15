@@ -34,6 +34,31 @@ def clean_old():
 
 def run_pyinstaller():
     print(f"[*] Starting PyInstaller build for {BUILD_NAME}...")
+    hidden_imports = [
+        "PySide6",
+        "PySide6.QtCore",
+        "PySide6.QtGui",
+        "PySide6.QtWidgets",
+        "PySide6.QtMultimedia",
+        "requests",
+        "psutil",
+        "pyLMUSharedMemory",
+        "pyACCSharedMemory",
+        "pyRfactor2SharedMemory",
+    ]
+    # Scan and include all tinypedal modules explicitly
+    for root, dirs, files in os.walk("tinypedal"):
+        for f in files:
+            if f.endswith(".py"):
+                rel = os.path.relpath(os.path.join(root, f), ".")
+                mod = rel.replace(os.sep, ".")
+                if mod.endswith(".__init__.py"):
+                    mod = mod[:-12]
+                elif mod.endswith(".py"):
+                    mod = mod[:-3]
+                if mod and mod not in hidden_imports:
+                    hidden_imports.append(mod)
+
     cmd = [
         sys.executable,
         "-m",
@@ -45,20 +70,13 @@ def run_pyinstaller():
         f"--icon={FILE.IMAGE_ICON}",
         "--paths=.",
         "--paths=thirdparty",
-        "--hidden-import=PySide6",
-        "--hidden-import=PySide6.QtCore",
-        "--hidden-import=PySide6.QtGui",
-        "--hidden-import=PySide6.QtWidgets",
-        "--hidden-import=PySide6.QtMultimedia",
-        "--hidden-import=requests",
-        "--hidden-import=psutil",
-        "--collect-submodules=tinypedal",
-        "--collect-submodules=pyLMUSharedMemory",
-        "--collect-submodules=pyACCSharedMemory",
-        "--collect-submodules=pyRfactor2SharedMemory",
-        "run.py",
+        "--exclude-module=PySide2",
     ]
-    print("    Command:", " ".join(cmd))
+    for hi in hidden_imports:
+        cmd.append(f"--hidden-import={hi}")
+    cmd.append("run.py")
+
+    print(f"    Total hidden imports: {len(hidden_imports)}")
     res = subprocess.run(cmd)
     if res.returncode != 0:
         print(f"[!] PyInstaller failed with code {res.returncode}")

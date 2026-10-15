@@ -36,6 +36,10 @@ except ImportError:
         import PySide6.QtGui
         import PySide6.QtWidgets
         import PySide6.QtMultimedia
+        if not hasattr(PySide6.QtWidgets, "QAction"):
+            PySide6.QtWidgets.QAction = PySide6.QtGui.QAction
+        if not hasattr(PySide6.QtWidgets, "QActionGroup"):
+            PySide6.QtWidgets.QActionGroup = PySide6.QtGui.QActionGroup
         sys.modules["PySide2"] = sys.modules["PySide6"]
         sys.modules["PySide2.QtCore"] = sys.modules["PySide6.QtCore"]
         sys.modules["PySide2.QtGui"] = sys.modules["PySide6.QtGui"]
@@ -165,6 +169,12 @@ def override_pyside_version(version: int = 6):
     """Override PySide version 2 to 6"""
     if version != 6:
         return
+    import PySide6.QtGui
+    import PySide6.QtWidgets
+    if not hasattr(PySide6.QtWidgets, "QAction"):
+        PySide6.QtWidgets.QAction = PySide6.QtGui.QAction
+    if not hasattr(PySide6.QtWidgets, "QActionGroup"):
+        PySide6.QtWidgets.QActionGroup = PySide6.QtGui.QActionGroup
     original = "PySide2"
     override = f"PySide{version}"
     override_module(original, override)
@@ -264,9 +274,13 @@ if __name__ == "__main__":
     main()
 
     # Start main loop only after main function exits (so temp vars are garbage collected)
-    from PySide2.QtWidgets import QApplication
+    try:
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        from PySide2.QtWidgets import QApplication
 
-    if os.getenv("PYSIDE_OVERRIDE") == "6":  # use 'exec' for pyside6
-        sys.exit(QApplication.instance().exec())
+    app_instance = QApplication.instance()
+    if hasattr(app_instance, "exec"):
+        sys.exit(app_instance.exec())
     else:
-        sys.exit(QApplication.instance().exec_())
+        sys.exit(app_instance.exec_())
