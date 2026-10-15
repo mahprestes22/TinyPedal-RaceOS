@@ -1,17 +1,29 @@
-# TinyPedal - racing simulation overlay
+# 🏁 TinyPedal-RaceOS
+> **Fork otimizado para Le Mans Ultimate (LMU) com integração em tempo real ao raceos.gg e telemetria moderna.**
 
-TinyPedal is a Free and Open Source telemetry overlay application for racing simulation.
+**TinyPedal-RaceOS** é uma versão aprimorada do [TinyPedal](https://github.com/TinyPedal/TinyPedal), especialmente focada no cenário competitivo online de **Le Mans Ultimate (LMU)**.
 
-Focuses on minimalist design, light-weight and efficiency, extensive customization and data analysis. Features a large collection of highly configurable overlay widgets and data modules, advanced fuel calculator and editing tools.
+### ✨ Novas Funcionalidades / New Features:
+- 📊 **Driver Rating & Safety Rating Reais (raceos.gg):** Exibe seu DR, SR e ranking de todos os pilotos do grid em tempo real.
+- 📈 **Projeção ao Vivo de Ganho/Perda de DR (+/-):** Cálculo de variação de Elo volta a volta durante a corrida, com suporte aos multiplicadores de pontuação (1.5x e 2.0x).
+- 🎨 **Cores Oficiais de Tier:** Destaque visual idêntico ao jogo para cada categoria de licença (Platina 🟦, Ouro 🟡, Prata ⚪, Bronze 🟤) com opção de ativar/desativar nas configurações.
+- 🔴 **Grid de Pneus 2x2 em Bolinhas:** Visualização compacta dos 4 compostos de pneus sem ocupar espaço horizontal excessivo.
+- ⏱️ **Recolhimento Inteligente de Coluna:** A coluna de projeção (`+/-`) se oculta automaticamente nos treinos e qualificação, aparecendo apenas na corrida.
+- 💎 **Visual Moderno Dark Glass:** Gradientes suaves, cantos arredondados e acabamento translúcido limpo.
 
-Currently supports `Assetto Corsa Competizione`, `Le Mans Ultimate`, `rFactor 2`, and runs on `Windows` and `Linux`.
+---
 
-[Download](https://github.com/TinyPedal/TinyPedal/releases) -
+## Sobre o TinyPedal Original
+
+TinyPedal é um aplicativo de overlay de telemetria gratuito e de código aberto para simulação automobilística.
+
+Atualmente suporta `Assetto Corsa Competizione`, `Le Mans Ultimate`, `rFactor 2` no `Windows` e `Linux`.
+
+[Download Releases](https://github.com/mahprestes22/TinyPedal-RaceOS/releases) -
+[Upstream Original](https://github.com/TinyPedal/TinyPedal) -
 [Quick Start](#quick-start) -
 [FAQ](https://github.com/TinyPedal/TinyPedal/wiki/Frequently-Asked-Questions) -
-[User Guide](https://github.com/TinyPedal/TinyPedal/wiki/User-Guide) -
-[Run on Linux](#running-on-linux) -
-[License](#license)
+[User Guide](https://github.com/TinyPedal/TinyPedal/wiki/User-Guide)
 ---
 
 ![preview](https://user-images.githubusercontent.com/21177177/282278970-b806bf02-a83d-4baa-8b45-0ca10f28f775.png)
