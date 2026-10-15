@@ -4,7 +4,7 @@
 **TinyPedal-RaceOS** é uma versão aprimorada do [TinyPedal](https://github.com/TinyPedal/TinyPedal), especialmente focada no cenário competitivo online de **Le Mans Ultimate (LMU)**.
 
 ### ✨ Novas Funcionalidades / New Features:
-- 📊 **Driver Rating & Safety Rating Reais (raceos.gg):** Exibe seu DR, SR e ranking de todos os pilotos do grid em tempo real.
+- 📊 **Driver Rating Real (raceos.gg):** Exibe o Driver Rating (DR) e tier de todos os pilotos do grid em tempo real, com porcentagem de progresso exata.
 - 📈 **Projeção ao Vivo de Ganho/Perda de DR (+/-):** Cálculo de variação de Elo volta a volta durante a corrida, com suporte aos multiplicadores de pontuação (1.5x e 2.0x).
 - 🎨 **Cores Oficiais de Tier:** Destaque visual idêntico ao jogo para cada categoria de licença (Platina 🟦, Ouro 🟡, Prata ⚪, Bronze 🟤) com opção de ativar/desativar nas configurações.
 - 🔴 **Grid de Pneus 2x2 em Bolinhas:** Visualização compacta dos 4 compostos de pneus sem ocupar espaço horizontal excessivo.
