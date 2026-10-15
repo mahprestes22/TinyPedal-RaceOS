@@ -1384,19 +1384,19 @@ class Realtime(Overlay):
             target.last = data
             target.text = data[0][:self.rat_width] if self.rat_width > 0 else data[0]
             target.fg, target.bg = self.bar_style_rat[data[1]]
-        # Tier background color
-        if self.wcfg.get("show_driver_rating_tier_color", True) and data[0]:
-            prefix = data[0][0].upper()
-            if prefix == "P":
-                tier_bg = "#3A6FAD"   # Platinum (blue)
-            elif prefix == "G":
-                tier_bg = "#C8A400"   # Gold
-            elif prefix == "S":
-                tier_bg = "#7A9BAA"   # Silver
-            else:
-                tier_bg = "#9B6033"   # Bronze
-            target.bg = tier_bg
-            self.toggle_visibility(target, data[-1])
+            # Tier background color
+            if self.wcfg.get("show_driver_rating_tier_color", True) and data[0]:
+                prefix = data[0][0].upper()
+                if prefix == "P":
+                    tier_bg = "#3A6FAD"   # Platinum (blue)
+                elif prefix == "G":
+                    tier_bg = "#C8A400"   # Gold
+                elif prefix == "S":
+                    tier_bg = "#7A9BAA"   # Silver
+                else:
+                    tier_bg = "#9B6033"   # Bronze
+                target.bg = tier_bg
+        self.toggle_visibility(target, data[-1])
 
     def update_rad(self, target, *data):
         """Driver rating delta"""
