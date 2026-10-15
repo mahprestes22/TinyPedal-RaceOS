@@ -27,6 +27,24 @@ from __future__ import annotations
 import os
 import sys
 
+# Early alias PySide2 -> PySide6 if PySide2 is not installed
+try:
+    import PySide2
+except ImportError:
+    try:
+        import PySide6.QtCore
+        import PySide6.QtGui
+        import PySide6.QtWidgets
+        import PySide6.QtMultimedia
+        sys.modules["PySide2"] = sys.modules["PySide6"]
+        sys.modules["PySide2.QtCore"] = sys.modules["PySide6.QtCore"]
+        sys.modules["PySide2.QtGui"] = sys.modules["PySide6.QtGui"]
+        sys.modules["PySide2.QtWidgets"] = sys.modules["PySide6.QtWidgets"]
+        sys.modules["PySide2.QtMultimedia"] = sys.modules["PySide6.QtMultimedia"]
+        os.environ["PYSIDE_OVERRIDE"] = "6"
+    except ImportError:
+        pass
+
 
 # Argument function
 def add_argument(name: str, arguments: tuple[str, ...], choices: tuple[int, ...], default: int | None, help: str) -> dict:
@@ -171,7 +189,7 @@ def main():
     """Run app"""
     # Check whether running from source
     exe_name = "tinypedal.exe"
-    if exe_name not in sys.executable:
+    if exe_name not in sys.executable.lower():
         exe_name = "python run.py"
         os.environ["RUN_FROM_SOURCE"] = "TRUE"
 
@@ -181,6 +199,13 @@ def main():
 
         # Add search path for third party modules
         sys.path.append("thirdparty")
+
+    # Detect available PySide version
+    try:
+        import PySide2
+        default_pyside = 2
+    except ImportError:
+        default_pyside = 6
 
     # Config arguments
     arg_log_level = add_argument(
@@ -201,8 +226,8 @@ def main():
         name="pyside",
         arguments=("-p", "--pyside"),
         choices=(2, 6),
-        default=2,
-        help="set PySide version; '2' PySide2 (default); '6' PySide6 (source only)",
+        default=default_pyside,
+        help=f"set PySide version; '2' PySide2; '6' PySide6 (default: {default_pyside})",
     )
 
     # Load command line arguments
