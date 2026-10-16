@@ -11,7 +11,7 @@ import zipfile
 from tinypedal.constant import APP, FILE
 
 BUILD_NAME = "TinyPedal"
-VERSION_TAG = f"v{APP.VERSION}-raceos.1"
+VERSION_TAG = f"v{APP.VERSION}-raceos.2"
 DIST_DIR = os.path.abspath("dist")
 APP_DIR = os.path.join(DIST_DIR, BUILD_NAME)
 ZIP_NAME = f"TinyPedal-RaceOS-{VERSION_TAG}-windows.zip"
