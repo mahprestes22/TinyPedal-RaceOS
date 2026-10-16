@@ -113,12 +113,36 @@ def tier_from_raceos(
     return base
 
 
+def try_parse_driver_rank_score(rank: str, tier: int, progress: float) -> float:
+    """Parse rank, tier, progress into doX driver rank score (0.0 .. 13.0)"""
+    text = (rank or "").strip()
+    if not text:
+        return 0.0
+    rank_lower = text.lower()
+    if "platinum" in rank_lower:
+        num = 3
+    elif "gold" in rank_lower:
+        num = 2
+    elif "silver" in rank_lower:
+        num = 1
+    elif "bronze" in rank_lower:
+        num = 0
+    else:
+        num = 1
+
+    tier_val = max(0, min(3, tier)) if num == 0 else max(1, min(3, tier))
+    prog_val = max(0.0, min(100.0, progress))
+    if num == 0:
+        return float(tier_val) + prog_val / 100.0
+    return float(4 + (num - 1) * 3 + (tier_val - 1)) + prog_val / 100.0
+
+
 class Realtime(DataModule):
     """Driver Rating module — fetches real DR/SR from raceos.gg using Steam auth ticket from LMU"""
 
     __slots__ = (
         "_lock",
-        "_raceos_cache",          # name -> {"elo": float, "tier": str, "progress": float, "sr_tier": str}
+        "_raceos_cache",          # name -> {"elo": float, "tier": str, "progress": float, "sr_tier": str, "score": float}
         "_rea_skills",            # name -> "gold"/"silver" etc (fallback from LMU catalog)
         "_access_token",
         "_access_token_expires",
@@ -132,6 +156,7 @@ class Realtime(DataModule):
         "_session_multiplier",    # Event DR multiplier (1.0, 1.5, 2.0 etc.)
         "_session_k",             # Event K factor (default 30.0)
         "_session_d",             # Event D divisor (default 420.0)
+        "_session_log",           # Event Log base (default 10.0)
         "_ratings_enabled",       # Whether DR is enabled for this event
         "_lmu_log_dir",
         "_lmu_teams_cache",       # name -> {"nationality": str, "badge": str}
@@ -161,6 +186,7 @@ class Realtime(DataModule):
         self._session_multiplier: float = 1.0
         self._session_k: float = 30.0
         self._session_d: float = 420.0
+        self._session_log: float = 10.0
         self._ratings_enabled: bool = True
         self._lmu_log_dir: str = self._resolve_lmu_log_dir()
 
@@ -332,6 +358,8 @@ class Realtime(DataModule):
             if my_bdg.lower() in ("none", "null", "undefined", "-"):
                 my_bdg = ""
 
+            my_score = try_parse_driver_rank_score(my_rank, my_tier_num, my_progress)
+
             with self._lock:
                 self._access_token = token
                 self._steam_ticket = ticket
@@ -347,6 +375,7 @@ class Realtime(DataModule):
                         "sr_tier": tier_from_raceos(my_sr_rank, my_sr_tier, compact=True),
                         "nationality": my_nat,
                         "badge": my_bdg,
+                        "score": my_score,
                     }
 
             logger.info(
@@ -396,6 +425,7 @@ class Realtime(DataModule):
                 base_mult = float(dr_s.get("base", 1.0))
                 k_val = float(dr_s.get("k", 30.0))
                 d_val = float(dr_s.get("d", 420.0))
+                log_val = float(dr_s.get("log", 10.0))
                 enabled = bool(cfg.get("enabled", True))
 
                 with self._lock:
@@ -403,11 +433,12 @@ class Realtime(DataModule):
                     self._session_multiplier = base_mult
                     self._session_k = k_val
                     self._session_d = d_val
+                    self._session_log = log_val
                     self._ratings_enabled = enabled
 
                 logger.info(
-                    "rating: event %s (%s) — multiplier=%.1fx, K=%.1f, D=%.1f, enabled=%s",
-                    event_id[:8], ev_type, base_mult, k_val, d_val, enabled,
+                    "rating: event %s (%s) — multiplier=%.1fx, K=%.1f, D=%.1f, log=%.1f, enabled=%s",
+                    event_id[:8], ev_type, base_mult, k_val, d_val, log_val, enabled,
                 )
                 break
             except Exception:
@@ -463,8 +494,9 @@ class Realtime(DataModule):
                         rank, tier_num, prog,
                         show_progress=self._show_progress, compact=True
                     )
+                    score = try_parse_driver_rank_score(rank, tier_num, prog)
                     updates[name] = {
-                        "elo": elo if elo > 0 else SKILL_TO_RATING.get(rank.lower(), 1350.0),
+                        "elo": elo if elo > 0 else (score * 100.0 * 3.0),
                         "tier": tier_str,
                         "progress": prog,
                         "sr_tier": tier_from_raceos(
@@ -474,6 +506,7 @@ class Realtime(DataModule):
                         ),
                         "nationality": p_nat,
                         "badge": p_bdg,
+                        "score": score,
                     }
 
             with self._lock:
@@ -511,13 +544,14 @@ class Realtime(DataModule):
 
     def _get_rating_for_driver(
         self, driver_name: str, default_rating: float, is_player: bool
-    ) -> tuple[float, str, str, str, str]:
-        """Return (elo, dr_tier_str, sr_tier_str, nationality, badge) for a driver"""
+    ) -> tuple[float, str, str, str, str, float]:
+        """Return (elo, dr_tier_str, sr_tier_str, nationality, badge, score) for a driver"""
         elo = default_rating
         dr_tier = ""
         sr_tier = ""
         nat = ""
         bdg = ""
+        score = 0.0
 
         with self._lock:
             cached = self._raceos_cache.get(driver_name)
@@ -527,6 +561,7 @@ class Realtime(DataModule):
                 sr_tier = cached.get("sr_tier", "")
                 nat = cached.get("nationality", "")
                 bdg = cached.get("badge", "")
+                score = cached.get("score", 0.0)
 
             # Check LMU teams API
             lmu_info = self._lmu_teams_cache.get(driver_name)
@@ -543,7 +578,9 @@ class Realtime(DataModule):
                     bdg = self._player_badge
 
         if dr_tier:
-            return elo, dr_tier, sr_tier, nat, bdg
+            if score <= 0.0:
+                score = elo / 300.0
+            return elo, dr_tier, sr_tier, nat, bdg, score
 
         # Fallback: skill from LMU catalog
         with self._lock:
@@ -558,13 +595,15 @@ class Realtime(DataModule):
         if skill:
             base = SKILL_TO_RATING.get(skill, default_rating)
             tier = get_tier_name(base, compact=True)
-            return base, tier, "", nat, bdg
+            score = try_parse_driver_rank_score(skill, 2, 50.0)
+            return base, tier, "", nat, bdg, score
 
         # Hash-based deterministic fallback for unknown AI drivers
         seed = sum(ord(c) for c in driver_name)
         base = max(1100.0, default_rating + (seed % 900) - 450)
         tier = get_tier_name(base, compact=True)
-        return base, tier, "", nat, bdg
+        score = base / 300.0
+        return base, tier, "", nat, bdg, score
 
     # -------------------------------------------------------------------------
     # Main update loop
@@ -630,7 +669,7 @@ class Realtime(DataModule):
             ratings_output = minfo.rating.ratings
             vehicles = minfo.vehicles.dataSet
 
-            class_drivers: dict[str, list[tuple[int, str, int, float, bool, str, str, str, str]]] = defaultdict(list)
+            class_drivers: dict[str, list[tuple[int, str, int, int, float, bool, str, str, str, str]]] = defaultdict(list)
             total_ratings: list[float] = []
             session_names: list[str] = []
 
@@ -649,11 +688,12 @@ class Realtime(DataModule):
 
                 session_names.append(driver_name)
                 cls_name = veh.vehicleClass if veh.vehicleClass else "Overall"
-                elo, dr_tier, sr_tier, nat, bdg = self._get_rating_for_driver(
+                elo, dr_tier, sr_tier, nat, bdg, score = self._get_rating_for_driver(
                     driver_name, default_rating, veh.isPlayer
                 )
                 pos = veh.positionInClass if veh.positionInClass > 0 else veh.positionOverall
-                class_drivers[cls_name].append((idx, driver_name, pos, elo, veh.isPlayer, dr_tier, sr_tier, nat, bdg))
+                qualy_pos = veh.qualifyInClass if veh.qualifyInClass > 0 else veh.qualifyOverall
+                class_drivers[cls_name].append((idx, driver_name, pos, qualy_pos, score, veh.isPlayer, dr_tier, sr_tier, nat, bdg))
                 total_ratings.append(elo)
 
             # Also fetch names directly from LMU REST standings to capture drivers in garage/lobby
@@ -676,48 +716,70 @@ class Realtime(DataModule):
 
             # Retrieve dynamic event parameters (from raceos.gg event overview)
             with self._lock:
-                effective_k = self._session_k * self._session_multiplier
+                effective_mult = self._session_multiplier
+                session_k = self._session_k
                 d_divisor = self._session_d
+                log_base = self._session_log
                 ratings_on = self._ratings_enabled
 
             for cls_name, drivers in class_drivers.items():
                 n = len(drivers)
                 if n <= 1 or not calc_elo or not ratings_on:
-                    for idx, d_name, pos, elo, is_plr, dr_tier, sr_tier, nat, bdg in drivers:
+                    for idx, d_name, pos, q_pos, score_i, is_plr, dr_tier, sr_tier, nat, bdg in drivers:
                         target = ratings_output[idx]
-                        target.driverRating = elo
-                        target.tier = dr_tier if dr_tier else get_tier_name(elo, compact=use_compact)
+                        target.driverRating = score_i * 100.0 * 3.0
+                        target.tier = dr_tier if dr_tier else get_tier_name(score_i * 300.0, compact=use_compact)
                         target.projectedDelta = 0.0
                         target.deltaText = "+0"
                         target.nationality = nat
                         target.badge = bdg
                     continue
 
-                drivers.sort(key=lambda x: x[2])
+                # Exact doX scale: num7 = multiplier * K / (2.0 * (n - 1))
+                scale = (effective_mult * session_k) / (2.0 * max(n - 1, 1))
 
-                for i, (idx, d_name, pos_i, r_i, is_plr, dr_tier, sr_tier, nat, bdg) in enumerate(drivers):
-                    actual_score = 0.0
-                    expected_score = 0.0
+                for i, (idx, d_name, pos_i, q_pos_i, score_i, is_plr, dr_tier, sr_tier, nat, bdg) in enumerate(drivers):
+                    internal_i = score_i * 100.0 * 3.0
+                    race_net = 0.0
+                    qualy_net = 0.0
 
-                    for j, (_, _, pos_j, r_j, _, _, _, _, _) in enumerate(drivers):
+                    for j, (_, _, pos_j, q_pos_j, score_j, _, _, _, _, _) in enumerate(drivers):
                         if i == j:
                             continue
-                        e_ij = 1.0 / (1.0 + 10.0 ** ((r_j - r_i) / d_divisor))
-                        expected_score += e_ij
-                        if i < j:
-                            actual_score += 1.0
-                        elif i == j:
-                            actual_score += 0.5
+                        internal_j = score_j * 100.0 * 3.0
+                        y = (internal_j - internal_i) / d_divisor
+                        denom = 1.0 + (log_base ** y)
+                        exp = (1.0 / denom) if denom > 0.0 else 0.5
 
-                    delta = (actual_score - expected_score) * (effective_k / max(n - 1, 1))
+                        # Race head to head
+                        if pos_i < pos_j:
+                            race_net += 1.0 - exp
+                        elif pos_i > pos_j:
+                            race_net += 0.0 - exp
+                        else:
+                            race_net += 0.5 - exp
+
+                        # Qualy head to head (if both have qualy pos > 0)
+                        if q_pos_i > 0 and q_pos_j > 0:
+                            if q_pos_i < q_pos_j:
+                                qualy_net += 1.0 - exp
+                            elif q_pos_i > q_pos_j:
+                                qualy_net += 0.0 - exp
+                            else:
+                                qualy_net += 0.5 - exp
+
+                    # doX weighting: qualy is 45/255 of race
+                    qualy_weight = 45.0 / 255.0 if qualy_net != 0.0 else 0.0
+                    gain = scale * (race_net + qualy_weight * qualy_net)
+
                     target = ratings_output[idx]
-                    target.driverRating = r_i
-                    target.tier = dr_tier if dr_tier else get_tier_name(r_i, compact=use_compact)
-                    target.projectedDelta = delta
+                    target.driverRating = internal_i
+                    target.tier = dr_tier if dr_tier else get_tier_name(score_i * 300.0, compact=use_compact)
+                    target.projectedDelta = gain
                     target.nationality = nat
                     target.badge = bdg
 
-                    int_delta = int(round(delta))
+                    int_delta = int(round(gain))
                     if int_delta > 0:
                         target.deltaText = f"+{int_delta}"
                     elif int_delta < 0:
