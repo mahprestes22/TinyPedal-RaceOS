@@ -163,6 +163,8 @@ class Realtime(DataModule):
         "_player_nationality",
         "_player_badge",
         "_last_teams_fetch",
+        "_last_session_stamp",
+        "_last_server_drivers",
     )
 
     def __init__(self, config, module_name: str):
@@ -178,6 +180,8 @@ class Realtime(DataModule):
         self._last_players_fetch: float = 0.0
         self._last_event_check: float = 0.0
         self._last_teams_fetch: float = 0.0
+        self._last_session_stamp: int = 0
+        self._last_server_drivers: frozenset[str] = frozenset()
         self._player_nationality: str = ""
         self._player_badge: str = ""
         self._auth_ok: bool = False
@@ -228,6 +232,21 @@ class Realtime(DataModule):
             return matches[-1] if matches else ""
         except Exception:
             return ""
+
+    def _reset_session_cache(self, reason: str = "") -> None:
+        """Clear cached players and force fresh auth/rating check on server change"""
+        logger.info("rating: resetting session cache (%s)", reason or "server change")
+        with self._lock:
+            self._raceos_cache.clear()
+            self._lmu_teams_cache.clear()
+            self._auth_ok = False
+            self._access_token_expires = 0.0
+            self._last_players_fetch = 0.0
+            self._last_auth_time = 0.0
+            self._last_teams_fetch = 0.0
+        # Trigger immediate re-auth and team fetch
+        threading.Thread(target=self._authenticate, daemon=True).start()
+        threading.Thread(target=self._fetch_lmu_multiplayer_teams, daemon=True).start()
 
     # -------------------------------------------------------------------------
     # raceos.gg auth & event overview
@@ -647,16 +666,29 @@ class Realtime(DataModule):
                     self._last_auth_time = now
                     threading.Thread(target=self._authenticate, daemon=True).start()
 
-            # Check online event ID periodically (every 20s)
-            if now - self._last_event_check > 20.0:
+            # Check online event ID periodically (every 5s)
+            if now - self._last_event_check > 5.0:
                 self._last_event_check = now
                 ev_id = self._detect_online_event_id()
                 with self._lock:
                     curr_ev = self._event_id
                 if ev_id and ev_id != curr_ev:
+                    # New event detected! Reset cache so all drivers and player DR are refetched fresh
+                    self._reset_session_cache(reason=f"event change: {curr_ev[:8] or 'none'} -> {ev_id[:8]}")
                     threading.Thread(
                         target=self._fetch_event_overview, args=(ev_id,), daemon=True
                     ).start()
+
+            # Check for server / session change via active driver grid (every 5s)
+            # If the grid of drivers changes significantly (new lobby/server), reset cache
+            current_drivers_set = frozenset(d for d in (veh.driverName for veh in minfo.vehicles.dataSet) if d)
+            if current_drivers_set and current_drivers_set != self._last_server_drivers:
+                # If there's minimal overlap (< 30% common drivers) and both sets have drivers, user joined a different server
+                if self._last_server_drivers:
+                    overlap = len(current_drivers_set & self._last_server_drivers)
+                    if overlap == 0 or (overlap / max(len(current_drivers_set), len(self._last_server_drivers))) < 0.3:
+                        self._reset_session_cache(reason="server/grid change")
+                self._last_server_drivers = current_drivers_set
 
             # Fetch LMU multiplayer teams periodically (every 5s)
             if now - self._last_teams_fetch > 5.0:
