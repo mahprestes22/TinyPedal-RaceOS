@@ -63,7 +63,7 @@ class APP:
 
     # Info
     TINYPEDAL = "TinyPedal"
-    REPOSITORY = "TinyPedal/TinyPedal"
+    REPOSITORY = "mahprestes22/TinyPedal-RaceOS"
     COPYRIGHT = "Copyright (C) 2022-2026 TinyPedal developers"
     DESCRIPTION = "Free and Open Source telemetry overlay application for racing simulation."
     LICENSE = "Licensed under the GNU General Public License v3.0 or later."

@@ -27,31 +27,53 @@ import sys
 from .constant import DATA
 
 
-def parse_version_string(ver: str) -> tuple[int, int, int]:
-    """Parse version string to tuple (major, minor, patch)"""
+def parse_version_string(ver: str) -> tuple[int, int, int] | tuple[int, int, int, int]:
+    """Parse version string to tuple (major, minor, patch, [raceos_build])"""
     try:
-        version = ver.split(".")
+        clean = ver.strip().lstrip("v")
+        # Support format: "2.51.5-raceos.2" or "2.51.5"
+        if "-raceos." in clean:
+            base_ver, raceos_ver = clean.split("-raceos.")
+            version = base_ver.split(".")
+            return int(version[0]), int(version[1]), int(version[2]), int(raceos_ver)
+        version = clean.split(".")
         return int(version[0]), int(version[1]), int(version[2])
     except (AttributeError, ValueError, TypeError, IndexError):
         return DATA.VERSION_NA
 
 
 def is_new_version(
-    checked_version: tuple[int, int, int],
-    current_version: tuple[int, int, int],
+    checked_version: tuple[int, ...],
+    current_version: tuple[int, ...],
     version_tag: str,
 ) -> bool:
     """Is new version"""
     # Invalid version
     if checked_version == DATA.VERSION_NA:
         return False
+
+    # Normalize both versions to 4 elements (major, minor, patch, raceos_build)
+    # If version_tag has raceos.X, factor it into current_version if not already there
+    cur = list(current_version)
+    if len(cur) == 3:
+        if version_tag.startswith("raceos."):
+            try:
+                cur.append(int(version_tag.split("raceos.")[1]))
+            except ValueError:
+                cur.append(0)
+        else:
+            cur.append(0)
+
+    chk = list(checked_version)
+    if len(chk) == 3:
+        chk.append(0)
+
+    cur_tuple = tuple(cur)
+    chk_tuple = tuple(chk)
+
     # New version
-    if checked_version > current_version:
+    if chk_tuple > cur_tuple:
         return True
-    # Pre-release version
-    if checked_version == current_version and version_tag:
-        return True
-    # Same version
     return False
 
 

@@ -51,16 +51,14 @@ def request_latest_release():
     return get_response(request_header, host, port, timeout, ssl=True)
 
 
-def parse_version(data: bytes) -> tuple[int, int, int]:
+def parse_version(data: bytes) -> tuple[int, ...]:
     """Parse release version"""
     try:
         pos_beg = data.find(b'"', data.find(b":", data.find(b"tag_name"))) + 1
         if pos_beg > 0:
             pos_end = data.find(b'"', pos_beg)
-            ver_raw = data[pos_beg:pos_end]
-            ver_strip = ver_raw.lstrip(b"v").split(b"-")[0]
-            ver_split = ver_strip.split(b".")
-            return int(ver_split[0]), int(ver_split[1]), int(ver_split[2])
+            ver_raw = data[pos_beg:pos_end].decode("utf-8", errors="ignore")
+            return parse_version_string(ver_raw)
     except (AttributeError, TypeError, IndexError, ValueError):
         logger.error("UPDATES: error while fetching latest release version info")
     return DATA.VERSION_NA
@@ -137,7 +135,11 @@ class UpdateChecker:
             return "Unable To Find Updates"
         if not self._update_available:
             return "No Updates Available"
-        return "New Updates: v{}.{}.{} ({}-{}-{})".format(
-            *self._last_checked_version,
+        if len(self._last_checked_version) >= 4 and self._last_checked_version[3] > 0:
+            ver_text = f"v{self._last_checked_version[0]}.{self._last_checked_version[1]}.{self._last_checked_version[2]}-raceos.{self._last_checked_version[3]}"
+        else:
+            ver_text = f"v{self._last_checked_version[0]}.{self._last_checked_version[1]}.{self._last_checked_version[2]}"
+        return "New Updates: {} ({}-{}-{})".format(
+            ver_text,
             *self._last_checked_date,
         )
