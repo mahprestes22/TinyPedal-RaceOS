@@ -234,17 +234,15 @@ class Realtime(DataModule):
             return ""
 
     def _reset_session_cache(self, reason: str = "") -> None:
-        """Clear cached players and force fresh auth/rating check on server change"""
-        logger.info("rating: resetting session cache (%s)", reason or "server change")
+        """Refresh session ratings and auth without purging existing data from screen"""
+        logger.info("rating: refreshing session data (%s)", reason or "server change")
         with self._lock:
-            self._raceos_cache.clear()
-            self._lmu_teams_cache.clear()
             self._auth_ok = False
             self._access_token_expires = 0.0
             self._last_players_fetch = 0.0
             self._last_auth_time = 0.0
             self._last_teams_fetch = 0.0
-        # Trigger immediate re-auth and team fetch
+        # Trigger immediate re-auth and team fetch in background
         threading.Thread(target=self._authenticate, daemon=True).start()
         threading.Thread(target=self._fetch_lmu_multiplayer_teams, daemon=True).start()
 
@@ -419,7 +417,7 @@ class Realtime(DataModule):
         if not auth_ok or not token or not event_id:
             return
 
-        for ev_type in ("daily", "weekly", "special"):
+        for ev_type in ("daily", "weekly", "special", "championship", "competition"):
             try:
                 body = json.dumps({
                     "game": "lmu",
@@ -679,15 +677,15 @@ class Realtime(DataModule):
                         target=self._fetch_event_overview, args=(ev_id,), daemon=True
                     ).start()
 
-            # Check for server / session change via active driver grid (every 5s)
-            # If the grid of drivers changes significantly (new lobby/server), reset cache
+            # Check for server / session change via track combo & driver grid (every 5s)
+            # Only trigger server change if combo changed or grid completely changed (0 overlap)
             current_drivers_set = frozenset(d for d in (veh.driverName for veh in minfo.vehicles.dataSet) if d)
-            if current_drivers_set and current_drivers_set != self._last_server_drivers:
-                # If there's minimal overlap (< 30% common drivers) and both sets have drivers, user joined a different server
-                if self._last_server_drivers:
-                    overlap = len(current_drivers_set & self._last_server_drivers)
-                    if overlap == 0 or (overlap / max(len(current_drivers_set), len(self._last_server_drivers))) < 0.3:
-                        self._reset_session_cache(reason="server/grid change")
+            if current_drivers_set and self._last_server_drivers:
+                overlap = len(current_drivers_set & self._last_server_drivers)
+                # If there is ZERO common driver between two full grids of >= 5 drivers, the user definitively switched servers
+                if overlap == 0 and len(current_drivers_set) >= 5 and len(self._last_server_drivers) >= 5:
+                    self._reset_session_cache(reason="server change (new lobby)")
+            if current_drivers_set:
                 self._last_server_drivers = current_drivers_set
 
             # Fetch LMU multiplayer teams periodically (every 5s)
